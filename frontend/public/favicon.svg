@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <rect width="48" height="48" rx="10" fill="#0052D9"/>
+  <rect x="10" y="8" width="24" height="30" rx="2" fill="white" fill-opacity="0.95"/>
+  <path d="M28 8l6 6H30a2 2 0 0 1-2-2V8z" fill="#b0c8e8"/>
+  <!-- folder tab -->
+  <path d="M8 18h15l2 3h15a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H8a1.5 1.5 0 0 1-1.5-1.5V18z" fill="white" fill-opacity="0.85"/>
+</svg>

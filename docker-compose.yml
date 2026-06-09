@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  # ========================================
+  # Go Backend
+  # ========================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fs_backend
+    restart: unless-stopped
+    ports:
+      - "10040:10040"
+    networks:
+      - file-sys
+    env_file:
+      - .env.production
+    volumes:
+      - /opt/file_sys/storage:/app/storage
+
+networks:
+  file-sys:
+    external: true

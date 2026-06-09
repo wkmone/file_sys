@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.npm-cache/
+
+# Build outputs
+dist/
+*.exe
+*.exe~
+*.tsbuildinfo
+
+# Environment files (contain secrets)
+.env
+.env.production
+
+# Local storage (runtime data)
+storage/
+backend/storage/
+temp/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Test / debug artifacts
+batch_login_result.json
+login_result.json
+captcha.png
+
+# Claude Code internal
+.claude/

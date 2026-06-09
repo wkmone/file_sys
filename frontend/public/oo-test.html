@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>OnlyOffice Test</title>
+  <style>
+    body { margin: 0; padding: 0; }
+    #editor-placeholder { width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="editor-placeholder"></div>
+
+  <script>
+    var DS_URL = 'http://192.168.8.20:9980';
+    var API_BASE = '/api/v1';
+
+    var params = new URLSearchParams(window.location.search);
+    var fileId = params.get('fileId');
+    var mode = params.get('mode') || 'edit';
+
+    if (!fileId) {
+      document.body.innerHTML = '<p style="padding:40px">Usage: oo-test.html?fileId=YOUR_FILE_ID&mode=edit</p>';
+      throw new Error('No fileId');
+    }
+
+    async function start() {
+      // Login
+      var loginRes = await fetch(API_BASE + '/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: '752941603@qq.com', password: 'Aa123456' }),
+      });
+      var loginData = await loginRes.json();
+      var token = loginData.data.access_token;
+
+      // Get editor config from backend
+      var configRes = await fetch(API_BASE + '/oo/editor-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ file_id: fileId, mode: mode }),
+      });
+      var configData = await configRes.json();
+      var ooToken = configData.data.token;
+      var config = configData.data.config;
+
+      // Load api.js
+      var script = document.createElement('script');
+      script.src = DS_URL + '/web-apps/apps/api/documents/api.js';
+      script.async = true;
+
+      script.onload = function() {
+        var editorConfig = ooToken
+          ? { token: ooToken, type: 'desktop', width: '100%', height: '100%' }
+          : { type: 'desktop', width: '100%', height: '100%', documentType: config.documentType, document: config.document, editorConfig: config.editorConfig };
+
+        editorConfig.events = {
+          onError: function(e) { console.error('Editor error:', e); },
+        };
+
+        var editor = new window.DocsAPI.DocEditor('editor-placeholder', editorConfig);
+      };
+
+      script.onerror = function() {
+        document.body.innerHTML = '<p style="padding:40px;color:red">Failed to load api.js</p>';
+      };
+
+      document.head.appendChild(script);
+    }
+
+    start().catch(function(e) {
+      document.body.innerHTML = '<p style="padding:40px;color:red">Error: ' + e.message + '</p>';
+    });
+  </script>
+</body>
+</html>
