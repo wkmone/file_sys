@@ -18,9 +18,13 @@ func NewFileRepo(db *pgxpool.Pool) *FileRepo {
 	return &FileRepo{db: db}
 }
 
-// Common column list used by all queries that return File rows.
+// Common column list used by queries that return File rows (unqualified).
 const fileCols = `id, name, original_name, folder_id, owner_id, team_id, mime_type, file_size,
                    file_ext, storage_key, content_hash, current_version, is_deleted, deleted_at, created_at, updated_at`
+ 
+// fileColsF is the same list qualified with f. for JOIN queries.
+const fileColsF = `f.id, f.name, f.original_name, f.folder_id, f.owner_id, f.team_id, f.mime_type, f.file_size,
+	                   f.file_ext, f.storage_key, f.content_hash, f.current_version, f.is_deleted, f.deleted_at, f.created_at, f.updated_at`
 
 func scanFile(row pgx.Row) (*model.File, error) {
 	var f model.File
@@ -40,6 +44,22 @@ func scanFiles(rows pgx.Rows) ([]model.File, error) {
 			&f.MimeType, &f.FileSize, &f.FileExt, &f.StorageKey,
 			&f.ContentHash, &f.CurrentVersion, &f.IsDeleted, &f.DeletedAt,
 			&f.CreatedAt, &f.UpdatedAt); err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	return files, nil
+}
+
+func scanFilesWithPerm(rows pgx.Rows) ([]model.File, error) {
+	defer rows.Close()
+	var files []model.File
+	for rows.Next() {
+		var f model.File
+		if err := rows.Scan(&f.ID, &f.Name, &f.OriginalName, &f.FolderID, &f.OwnerID, &f.TeamID,
+			&f.MimeType, &f.FileSize, &f.FileExt, &f.StorageKey,
+			&f.ContentHash, &f.CurrentVersion, &f.IsDeleted, &f.DeletedAt,
+			&f.CreatedAt, &f.UpdatedAt, &f.Permission, &f.SharedBy); err != nil {
 			return nil, err
 		}
 		files = append(files, f)
@@ -70,11 +90,17 @@ func (r *FileRepo) FindByFolder(ctx context.Context, folderID *string, ownerID s
 
 	if folderID == nil || *folderID == "" {
 		err = r.db.QueryRow(ctx,
-			`SELECT COUNT(*) FROM files WHERE folder_id IS NULL AND owner_id = $1 AND team_id IS NULL AND is_deleted = false`, ownerID,
+			`SELECT COUNT(DISTINCT f.id) FROM files f
+			 LEFT JOIN permissions p ON f.id = p.file_id AND p.user_id = $1::uuid
+			 WHERE f.folder_id IS NULL AND f.team_id IS NULL AND f.is_deleted = false
+			   AND (f.owner_id = $1 OR p.id IS NOT NULL)`, ownerID,
 		).Scan(&total)
 	} else {
 		err = r.db.QueryRow(ctx,
-			`SELECT COUNT(*) FROM files WHERE folder_id = $1 AND owner_id = $2 AND team_id IS NULL AND is_deleted = false`, *folderID, ownerID,
+			`SELECT COUNT(DISTINCT f.id) FROM files f
+			 LEFT JOIN permissions p ON f.id = p.file_id AND p.user_id = $2::uuid
+			 WHERE f.folder_id = $1 AND f.team_id IS NULL AND f.is_deleted = false
+			   AND (f.owner_id = $2 OR p.id IS NOT NULL)`, *folderID, ownerID,
 		).Scan(&total)
 	}
 	if err != nil {
@@ -85,18 +111,26 @@ func (r *FileRepo) FindByFolder(ctx context.Context, folderID *string, ownerID s
 	var rows pgx.Rows
 	if folderID == nil || *folderID == "" {
 		rows, err = r.db.Query(ctx,
-			`SELECT `+fileCols+` FROM files WHERE folder_id IS NULL AND owner_id = $1 AND team_id IS NULL AND is_deleted = false
-			 ORDER BY name ASC LIMIT $2 OFFSET $3`, ownerID, pageSize, offset)
+			`SELECT DISTINCT `+fileColsF+`, COALESCE(p.permission, '') AS perm, COALESCE(p.granted_by::text, '') AS shared_by
+			 FROM files f
+			 LEFT JOIN permissions p ON f.id = p.file_id AND p.user_id = $1::uuid
+			 WHERE f.folder_id IS NULL AND f.team_id IS NULL AND f.is_deleted = false
+			   AND (f.owner_id = $1 OR p.id IS NOT NULL)
+			 ORDER BY f.name ASC LIMIT $2 OFFSET $3`, ownerID, pageSize, offset)
 	} else {
 		rows, err = r.db.Query(ctx,
-			`SELECT `+fileCols+` FROM files WHERE folder_id = $1 AND owner_id = $2 AND team_id IS NULL AND is_deleted = false
-			 ORDER BY name ASC LIMIT $3 OFFSET $4`, *folderID, ownerID, pageSize, offset)
+			`SELECT DISTINCT `+fileColsF+`, COALESCE(p.permission, '') AS perm, COALESCE(p.granted_by::text, '') AS shared_by
+			 FROM files f
+			 LEFT JOIN permissions p ON f.id = p.file_id AND p.user_id = $2::uuid
+			 WHERE f.folder_id = $1 AND f.team_id IS NULL AND f.is_deleted = false
+			   AND (f.owner_id = $2 OR p.id IS NOT NULL)
+			 ORDER BY f.name ASC LIMIT $3 OFFSET $4`, *folderID, ownerID, pageSize, offset)
 	}
 	if err != nil {
 		return nil, 0, err
 	}
 
-	files, err := scanFiles(rows)
+	files, err := scanFilesWithPerm(rows)
 	return files, total, err
 }
 
@@ -160,24 +194,26 @@ func (r *FileRepo) PermanentDelete(ctx context.Context, id string) error {
 
 // FindByTeam finds files that belong to the given team, either directly (root level)
 // or via a team-owned folder.
-func (r *FileRepo) FindByTeam(ctx context.Context, teamID string, folderID *string, page, pageSize int) ([]model.File, int64, error) {
+func (r *FileRepo) FindByTeam(ctx context.Context, teamID string, folderID *string, userID string, page, pageSize int) ([]model.File, int64, error) {
 	var total int64
 	var rows pgx.Rows
 	var err error
 
 	if folderID == nil || *folderID == "" {
-		// Root of team space: files with direct team_id OR in team-owned folders
 		err = r.db.QueryRow(ctx,
 			`SELECT COUNT(*) FROM files f
-			 WHERE f.team_id = $1 AND f.folder_id IS NULL AND f.is_deleted = false`, teamID,
+			 WHERE f.folder_id IS NULL AND f.is_deleted = false
+			   AND (f.team_id = $1 OR EXISTS (
+			       SELECT 1 FROM permissions p WHERE p.file_id = f.id AND p.user_id = $2
+			   ))`, teamID, userID,
 		).Scan(&total)
 	} else {
 		err = r.db.QueryRow(ctx,
 			`SELECT COUNT(*) FROM files f
 			 WHERE f.folder_id = $1 AND f.is_deleted = false
 			   AND (f.team_id = $2 OR EXISTS (
-			       SELECT 1 FROM folders fo WHERE fo.id = $1 AND fo.team_id = $2
-			   ))`, *folderID, teamID,
+			       SELECT 1 FROM permissions p WHERE p.file_id = f.id AND p.user_id = $3
+			   ))`, *folderID, teamID, userID,
 		).Scan(&total)
 	}
 	if err != nil {
@@ -188,16 +224,19 @@ func (r *FileRepo) FindByTeam(ctx context.Context, teamID string, folderID *stri
 	if folderID == nil || *folderID == "" {
 		rows, err = r.db.Query(ctx,
 			`SELECT `+fileCols+` FROM files f
-			 WHERE f.team_id = $1 AND f.folder_id IS NULL AND f.is_deleted = false
-			 ORDER BY f.updated_at DESC LIMIT $2 OFFSET $3`, teamID, pageSize, offset)
+			 WHERE f.folder_id IS NULL AND f.is_deleted = false
+			   AND (f.team_id = $1 OR EXISTS (
+			       SELECT 1 FROM permissions p WHERE p.file_id = f.id AND p.user_id = $2
+			   ))
+			 ORDER BY f.updated_at DESC LIMIT $3 OFFSET $4`, teamID, userID, pageSize, offset)
 	} else {
 		rows, err = r.db.Query(ctx,
 			`SELECT `+fileCols+` FROM files f
 			 WHERE f.folder_id = $1 AND f.is_deleted = false
 			   AND (f.team_id = $2 OR EXISTS (
-			       SELECT 1 FROM folders fo WHERE fo.id = $1 AND fo.team_id = $2
+			       SELECT 1 FROM permissions p WHERE p.file_id = f.id AND p.user_id = $3
 			   ))
-			 ORDER BY f.updated_at DESC LIMIT $3 OFFSET $4`, *folderID, teamID, pageSize, offset)
+			 ORDER BY f.updated_at DESC LIMIT $4 OFFSET $5`, *folderID, teamID, userID, pageSize, offset)
 	}
 	if err != nil {
 		return nil, 0, err

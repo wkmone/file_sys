@@ -95,8 +95,8 @@ func (s *FolderService) ListByParent(ctx context.Context, parentID *string, owne
 	return s.folderRepo.FindByParent(ctx, parentID, ownerID, page, pageSize)
 }
 
-func (s *FolderService) ListByTeam(ctx context.Context, teamID string, parentID *string, page, pageSize int) ([]model.Folder, int64, error) {
-	return s.folderRepo.FindByTeam(ctx, teamID, parentID, page, pageSize)
+func (s *FolderService) ListByTeam(ctx context.Context, teamID string, parentID *string, userID string, page, pageSize int) ([]model.Folder, int64, error) {
+	return s.folderRepo.FindByTeam(ctx, teamID, parentID, userID, page, pageSize)
 }
 
 func (s *FolderService) GetAllByOwner(ctx context.Context, ownerID string) ([]model.Folder, error) {

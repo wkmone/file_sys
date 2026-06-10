@@ -25,9 +25,12 @@ export default function FileIcon({ type, size = 48 }: FileIconProps) {
         return <PdfShape />
       case '.xlsx':
       case '.xls':
+      case '.ods':
+      case '.csv':
         return <ExcelShape />
       case '.pptx':
       case '.ppt':
+      case '.odp':
         return <PptShape />
       case '.png':
       case '.jpg':
@@ -36,7 +39,11 @@ export default function FileIcon({ type, size = 48 }: FileIconProps) {
         return <ImageShape />
       case '.docx':
       case '.doc':
+      case '.odt':
+      case '.rtf':
         return <DocShape />
+      case '.epub':
+        return <EpubShape />
       default:
         return <GenericFileShape />
     }
@@ -155,6 +162,27 @@ function DocShape() {
       <rect x="12" y="25" width="15" height="1.5" rx="0.75" fill="#b0c8e8" />
       <rect x="12" y="28" width="12" height="1.5" rx="0.75" fill="#b0c8e8" />
       <rect x="12" y="31" width="6" height="1.5" rx="0.75" fill="#b0c8e8" />
+    </>
+  )
+}
+
+/* ── Epub / Book ─────────────────────────────── */
+function EpubShape() {
+  return (
+    <>
+      <rect x="10" y="8" width="24" height="30" rx="2" fill="white" fillOpacity={0.95} />
+      <path d="M28 8l6 6H30a2 2 0 0 1-2-2V8z" fill="#e8e8e8" />
+      {/* book spine + pages */}
+      <rect x="14" y="16" width="16" height="18" rx="1" fill="white" stroke="#e34d59" strokeWidth={0.7} />
+      <line x1="22" y1="16" x2="22" y2="34" stroke="#e34d59" strokeWidth={0.5} />
+      {/* text lines on left page */}
+      <rect x="15.5" y="18.5" width="5" height="1" rx="0.5" fill="#d0d0d0" />
+      <rect x="15.5" y="20.5" width="4.5" height="1" rx="0.5" fill="#d0d0d0" />
+      <rect x="15.5" y="22.5" width="5" height="1" rx="0.5" fill="#d0d0d0" />
+      {/* text lines on right page */}
+      <rect x="23.5" y="18.5" width="5" height="1" rx="0.5" fill="#d0d0d0" />
+      <rect x="23.5" y="20.5" width="4" height="1" rx="0.5" fill="#d0d0d0" />
+      <rect x="23.5" y="22.5" width="5" height="1" rx="0.5" fill="#d0d0d0" />
     </>
   )
 }

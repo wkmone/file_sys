@@ -1,15 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Typography, Button, List, Modal, Input, message, Popconfirm, Tag, Tabs, Spin, Badge } from 'antd'
+import { Typography, Button, List, Modal, Input, message, Popconfirm, Tag, Tabs } from 'antd'
 import {
   PlusOutlined, TeamOutlined, DeleteOutlined, EyeOutlined,
-  CrownOutlined, LoginOutlined, FolderOutlined, SearchOutlined,
-  CheckOutlined, CloseOutlined, ClockCircleOutlined,
+  CrownOutlined, LoginOutlined, FolderOutlined,
 } from '@ant-design/icons'
 import { teamApi } from '../api/teamApi'
 import { useAuthStore } from '../store/authStore'
 import { useTeamRefresh } from '../store/teamStore'
-import type { Team, TeamMember, JoinRequest } from '../types/team'
+import type { Team, TeamMember } from '../types/team'
 import { colors } from '../theme'
 
 const roleColors: Record<string, string> = { owner: 'gold', admin: 'blue', member: 'green' }
@@ -25,12 +24,6 @@ export default function TeamManagementPage() {
   const [newTeamName, setNewTeamName] = useState('')
   const [newTeamDesc, setNewTeamDesc] = useState('')
   const [creating, setCreating] = useState(false)
-
-  // Discover teams
-  const [discoverOpen, setDiscoverOpen] = useState(false)
-  const [allTeams, setAllTeams] = useState<Team[]>([])
-  const [discovering, setDiscovering] = useState(false)
-  const [pendingMap, setPendingMap] = useState<Record<string, boolean>>({})
   const [joiningMap, setJoiningMap] = useState<Record<string, boolean>>({})
 
   // Members
@@ -38,15 +31,10 @@ export default function TeamManagementPage() {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
   const [members, setMembers] = useState<TeamMember[]>([])
 
-  // Join requests (admin)
-  const [requestsModalOpen, setRequestsModalOpen] = useState(false)
-  const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([])
-  const [requestsLoading, setRequestsLoading] = useState(false)
-
   const fetchTeams = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await teamApi.list()
+      const res = await teamApi.discover()
       setTeams(res.data.data || [])
     } catch {
       message.error('获取团队列表失败')
@@ -57,7 +45,14 @@ export default function TeamManagementPage() {
 
   useEffect(() => { fetchTeams() }, [fetchTeams])
 
-  const myTeamIds = new Set(teams.map((t) => t.id))
+  // Also fetch my teams to know which ones I've joined
+  const [myTeamIds, setMyTeamIds] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    teamApi.list().then((res) => {
+      const ids = new Set((res.data.data || []).map((t: Team) => t.id))
+      setMyTeamIds(ids)
+    }).catch(() => {})
+  }, [teams])
 
   const handleCreate = async () => {
     if (!newTeamName.trim()) return
@@ -88,39 +83,16 @@ export default function TeamManagementPage() {
     }
   }
 
-  const openDiscover = async () => {
-    setDiscoverOpen(true)
-    setDiscovering(true)
-    try {
-      const res = await teamApi.discover()
-      const all: Team[] = res.data.data || []
-      setAllTeams(all)
-      // Check pending requests for non-member teams
-      const pm: Record<string, boolean> = {}
-      await Promise.all(
-        all.filter((t) => !myTeamIds.has(t.id)).map(async (t) => {
-          try {
-            const r = await teamApi.getPendingRequest(t.id)
-            if (r.data.data) pm[t.id] = true
-          } catch { /* ignore */ }
-        })
-      )
-      setPendingMap(pm)
-    } catch {
-      message.error('获取团队列表失败')
-    } finally {
-      setDiscovering(false)
-    }
-  }
-
-  const handleRequestJoin = async (teamId: string) => {
+  const handleJoin = async (teamId: string) => {
     setJoiningMap((prev) => ({ ...prev, [teamId]: true }))
     try {
       await teamApi.requestJoin(teamId)
-      message.success('已发送加入申请，等待管理员审批')
-      setPendingMap((prev) => ({ ...prev, [teamId]: true }))
+      message.success('已加入团队')
+      setMyTeamIds((prev) => new Set(prev).add(teamId))
+      bumpTeams()
+      fetchTeams()
     } catch (err: any) {
-      message.error(err.response?.data?.message || '申请失败')
+      message.error(err.response?.data?.message || '加入失败')
     } finally {
       setJoiningMap((prev) => ({ ...prev, [teamId]: false }))
     }
@@ -148,120 +120,87 @@ export default function TeamManagementPage() {
     }
   }
 
-  const openJoinRequests = async (team: Team) => {
-    setSelectedTeam(team)
-    setRequestsModalOpen(true)
-    setRequestsLoading(true)
-    try {
-      const res = await teamApi.listJoinRequests(team.id)
-      setJoinRequests(res.data.data || [])
-    } catch {
-      message.error('获取申请列表失败')
-    } finally {
-      setRequestsLoading(false)
-    }
-  }
-
-  const handleApprove = async (requestId: string) => {
-    if (!selectedTeam) return
-    try {
-      await teamApi.handleJoinRequest(selectedTeam.id, requestId, 'approved')
-      message.success('已批准加入')
-      setJoinRequests((prev) => prev.filter((r) => r.id !== requestId))
-      bumpTeams()
-      fetchTeams()
-    } catch {
-      message.error('操作失败')
-    }
-  }
-
-  const handleReject = async (requestId: string) => {
-    if (!selectedTeam) return
-    try {
-      await teamApi.handleJoinRequest(selectedTeam.id, requestId, 'rejected')
-      message.success('已拒绝')
-      setJoinRequests((prev) => prev.filter((r) => r.id !== requestId))
-    } catch {
-      message.error('操作失败')
-    }
-  }
-
   const ownedTeams = teams.filter((t) => t.owner_id === user?.id)
-  const joinedTeams = teams.filter((t) => t.owner_id !== user?.id)
-  const adminTeams = teams.filter((t) => {
-    // Teams where I'm owner or admin — used for join requests tab
-    return t.owner_id === user?.id
-  })
+  const joinedTeams = teams.filter((t) => t.owner_id !== user?.id && myTeamIds.has(t.id))
 
-  const renderTeamCard = (team: Team, showRequestBadge = false) => (
-    <div
-      style={{
-        border: `1px solid ${colors.border}`,
-        borderRadius: 12,
-        padding: 20,
-        background: colors.white,
-        transition: 'all 0.2s',
-        position: 'relative',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = colors.primary
-        e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,82,217,0.1)'
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = colors.border
-        e.currentTarget.style.boxShadow = 'none'
-      }}
-    >
-      {showRequestBadge && pendingMap[team.id] && (
-        <Badge
-          count={<ClockCircleOutlined style={{ color: '#faad14', fontSize: 14 }} />}
-          offset={[-6, 6]}
-          style={{ zIndex: 1 }}
-        >
-          <span />
-        </Badge>
-      )}
-      <div style={{
-        width: 48, height: 48, borderRadius: 12,
-        background: colors.primaryLight,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        marginBottom: 14,
-      }}>
-        <TeamOutlined style={{ fontSize: 24, color: colors.primary }} />
-      </div>
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ fontWeight: 600, fontSize: 15, color: colors.textPrimary, marginBottom: 4 }}>
-          {team.name}
-          {team.owner_id === user?.id && <CrownOutlined style={{ color: '#faad14', marginLeft: 6, fontSize: 13 }} />}
+  const renderTeamCard = (team: Team) => {
+    const isMember = myTeamIds.has(team.id)
+    const isJoining = joiningMap[team.id]
+    return (
+      <div
+        style={{
+          border: `1px solid ${colors.border}`,
+          borderRadius: 12,
+          padding: 20,
+          background: colors.white,
+          transition: 'all 0.2s',
+          position: 'relative',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = colors.primary
+          e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,82,217,0.1)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = colors.border
+          e.currentTarget.style.boxShadow = 'none'
+        }}
+      >
+        <div style={{
+          width: 48, height: 48, borderRadius: 12,
+          background: colors.primaryLight,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          marginBottom: 14,
+        }}>
+          <TeamOutlined style={{ fontSize: 24, color: colors.primary }} />
         </div>
-        <div style={{ fontSize: 13, color: colors.textTertiary, minHeight: 18 }}>
-          {team.description || '无描述'}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontWeight: 600, fontSize: 15, color: colors.textPrimary, marginBottom: 4 }}>
+            {team.name}
+            {team.owner_id === user?.id && <CrownOutlined style={{ color: '#faad14', marginLeft: 6, fontSize: 13 }} />}
+          </div>
+          <div style={{ fontSize: 13, color: colors.textTertiary, minHeight: 18 }}>
+            {team.description || '无描述'}
+          </div>
         </div>
-      </div>
-      <div style={{ display: 'flex', gap: 8, borderTop: `1px solid ${colors.border}`, paddingTop: 12 }}>
-        <Button type="text" size="small" icon={<EyeOutlined />}
-          onClick={() => navigate(`/teams/${team.id}`)}
-          style={{ color: colors.primary }}>
-          详情
-        </Button>
-        <Button type="text" size="small" icon={<FolderOutlined />}
-          onClick={() => navigate(`/teams/${team.id}/files`)}>
-          文件
-        </Button>
-        <Button type="text" size="small" icon={<TeamOutlined />}
-          onClick={(e) => { e.stopPropagation(); openMembers(team) }}>
-          成员
-        </Button>
-        {team.owner_id === user?.id && (
-          <Popconfirm title="确定删除此团队？" onConfirm={(e) => { e?.stopPropagation(); handleDelete(team.id) }}>
-            <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()}>
-              删除
+        <div style={{ display: 'flex', gap: 8, borderTop: `1px solid ${colors.border}`, paddingTop: 12, flexWrap: 'wrap' }}>
+          {isMember ? (
+            <>
+              <Button type="text" size="small" icon={<EyeOutlined />}
+                onClick={() => navigate(`/teams/${team.id}`)}
+                style={{ color: colors.primary }}>
+                详情
+              </Button>
+              <Button type="text" size="small" icon={<FolderOutlined />}
+                onClick={() => navigate(`/teams/${team.id}/files`)}>
+                文件
+              </Button>
+              <Button type="text" size="small" icon={<TeamOutlined />}
+                onClick={(e) => { e.stopPropagation(); openMembers(team) }}>
+                成员
+              </Button>
+              {team.owner_id === user?.id && (
+                <Popconfirm title="确定删除此团队？" onConfirm={(e) => { e?.stopPropagation(); handleDelete(team.id) }}>
+                  <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()}>
+                    删除
+                  </Button>
+                </Popconfirm>
+              )}
+            </>
+          ) : (
+            <Button
+              type="primary"
+              size="small"
+              icon={<LoginOutlined />}
+              loading={isJoining}
+              onClick={() => handleJoin(team.id)}
+            >
+              加入团队
             </Button>
-          </Popconfirm>
-        )}
+          )}
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   return (
     <div>
@@ -269,13 +208,10 @@ export default function TeamManagementPage() {
         <div>
           <Typography.Title level={3} style={{ margin: 0, color: colors.textPrimary }}>团队管理</Typography.Title>
           <Typography.Text style={{ color: colors.textSecondary, fontSize: 14 }}>
-            管理你的团队或发现并加入新的团队
+            浏览所有团队，一键加入感兴趣的团队
           </Typography.Text>
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Button icon={<SearchOutlined />} onClick={openDiscover}>发现团队</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>创建团队</Button>
-        </div>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>创建团队</Button>
       </div>
 
       <Tabs
@@ -286,12 +222,9 @@ export default function TeamManagementPage() {
             children: teams.length === 0 ? (
               <div style={{ padding: 64, textAlign: 'center', border: `1px dashed ${colors.border}`, borderRadius: 12 }}>
                 <TeamOutlined style={{ fontSize: 48, color: colors.textTertiary, marginBottom: 16 }} />
-                <div style={{ fontSize: 16, color: colors.textSecondary, marginBottom: 8 }}>还没有加入任何团队</div>
-                <div style={{ fontSize: 13, color: colors.textTertiary, marginBottom: 16 }}>创建一个新团队或点击"发现团队"加入已有团队</div>
-                <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-                  <Button icon={<SearchOutlined />} onClick={openDiscover}>发现团队</Button>
-                  <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>创建团队</Button>
-                </div>
+                <div style={{ fontSize: 16, color: colors.textSecondary, marginBottom: 8 }}>暂无可加入的团队</div>
+                <div style={{ fontSize: 13, color: colors.textTertiary, marginBottom: 16 }}>创建一个新团队，开启协作之旅</div>
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>创建团队</Button>
               </div>
             ) : (
               <List
@@ -323,7 +256,7 @@ export default function TeamManagementPage() {
             label: `我加入的 (${joinedTeams.length})`,
             children: joinedTeams.length === 0 ? (
               <div style={{ padding: 48, textAlign: 'center', color: colors.textSecondary }}>
-                你还没有加入其他团队，点击上方"发现团队"按钮浏览可加入的团队
+                你还没有加入其他团队，在"全部团队"中找到感兴趣的团队即可加入
               </div>
             ) : (
               <List
@@ -334,55 +267,6 @@ export default function TeamManagementPage() {
               />
             ),
           },
-          ...(adminTeams.length > 0 ? [{
-            key: 'requests',
-            label: `入团审批`,
-            children: (
-              <List
-                loading={loading}
-                grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 3, xl: 4 }}
-                dataSource={adminTeams}
-                renderItem={(team) => (
-                  <List.Item>
-                    <div
-                      style={{
-                        border: `1px solid ${colors.border}`,
-                        borderRadius: 12,
-                        padding: 20,
-                        background: colors.white,
-                        cursor: 'pointer',
-                        transition: 'all 0.2s',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = colors.primary
-                        e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,82,217,0.1)'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = colors.border
-                        e.currentTarget.style.boxShadow = 'none'
-                      }}
-                      onClick={() => openJoinRequests(team)}
-                    >
-                      <div style={{
-                        width: 48, height: 48, borderRadius: 12,
-                        background: colors.primaryLight,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        marginBottom: 14,
-                      }}>
-                        <TeamOutlined style={{ fontSize: 24, color: colors.primary }} />
-                      </div>
-                      <div style={{ fontWeight: 600, fontSize: 15, color: colors.textPrimary }}>
-                        {team.name}
-                      </div>
-                      <div style={{ fontSize: 13, color: colors.textSecondary, marginTop: 4 }}>
-                        点击查看入团申请
-                      </div>
-                    </div>
-                  </List.Item>
-                )}
-              />
-            ),
-          }] : []),
         ]}
       />
 
@@ -413,76 +297,6 @@ export default function TeamManagementPage() {
           onChange={(e) => setNewTeamDesc(e.target.value)}
           rows={3}
         />
-      </Modal>
-
-      {/* Discover Teams Modal */}
-      <Modal
-        title="发现团队"
-        open={discoverOpen}
-        onCancel={() => setDiscoverOpen(false)}
-        footer={null}
-        width={720}
-      >
-        <Spin spinning={discovering}>
-          {allTeams.length === 0 && !discovering ? (
-            <div style={{ padding: 48, textAlign: 'center', color: colors.textSecondary }}>
-              暂无可加入的团队
-            </div>
-          ) : (
-            <List
-              dataSource={allTeams}
-              renderItem={(team) => {
-                const isMember = myTeamIds.has(team.id)
-                const isPending = pendingMap[team.id]
-                const isJoining = joiningMap[team.id]
-                return (
-                  <List.Item
-                    actions={[
-                      isMember ? (
-                        <Tag color="green">已加入</Tag>
-                      ) : isPending ? (
-                        <Tag icon={<ClockCircleOutlined />} color="orange">等待审批</Tag>
-                      ) : (
-                        <Button
-                          type="primary"
-                          size="small"
-                          icon={<LoginOutlined />}
-                          loading={isJoining}
-                          onClick={() => handleRequestJoin(team.id)}
-                        >
-                          申请加入
-                        </Button>
-                      ),
-                    ]}
-                  >
-                    <List.Item.Meta
-                      avatar={
-                        <div style={{
-                          width: 40, height: 40, borderRadius: 10,
-                          background: colors.primaryLight,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        }}>
-                          <TeamOutlined style={{ fontSize: 20, color: colors.primary }} />
-                        </div>
-                      }
-                      title={
-                        <span style={{ color: colors.textPrimary }}>
-                          {team.name}
-                          {team.owner_id === user?.id && <CrownOutlined style={{ color: '#faad14', marginLeft: 6 }} />}
-                        </span>
-                      }
-                      description={
-                        <span style={{ color: colors.textTertiary }}>
-                          {team.description || '无描述'}
-                        </span>
-                      }
-                    />
-                  </List.Item>
-                )
-              }}
-            />
-          )}
-        </Spin>
       </Modal>
 
       {/* Members Modal */}
@@ -517,72 +331,6 @@ export default function TeamManagementPage() {
             </List.Item>
           )}
         />
-      </Modal>
-
-      {/* Join Requests Modal */}
-      <Modal
-        title={`${selectedTeam?.name} - 入团申请`}
-        open={requestsModalOpen}
-        onCancel={() => setRequestsModalOpen(false)}
-        footer={null}
-        width={560}
-      >
-        <Spin spinning={requestsLoading}>
-          {joinRequests.length === 0 && !requestsLoading ? (
-            <div style={{ padding: 32, textAlign: 'center', color: colors.textSecondary }}>
-              暂无待审批的申请
-            </div>
-          ) : (
-            <List
-              dataSource={joinRequests}
-              renderItem={(r) => (
-                <List.Item
-                  actions={[
-                    r.status === 'pending' ? (
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <Button
-                          size="small"
-                          type="primary"
-                          icon={<CheckOutlined />}
-                          onClick={() => handleApprove(r.id)}
-                        >
-                          批准
-                        </Button>
-                        <Button
-                          size="small"
-                          danger
-                          icon={<CloseOutlined />}
-                          onClick={() => handleReject(r.id)}
-                        >
-                          拒绝
-                        </Button>
-                      </div>
-                    ) : (
-                      <Tag color={r.status === 'approved' ? 'green' : 'red'}>
-                        {r.status === 'approved' ? '已批准' : '已拒绝'}
-                      </Tag>
-                    ),
-                  ]}
-                >
-                  <List.Item.Meta
-                    avatar={
-                      <div style={{
-                        width: 36, height: 36, borderRadius: '50%',
-                        background: colors.primaryLight,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        color: colors.primary, fontWeight: 600, fontSize: 14,
-                      }}>
-                        {(r.display_name || '?')[0]}
-                      </div>
-                    }
-                    title={<span style={{ color: colors.textPrimary }}>{r.display_name}</span>}
-                    description={`${r.email} · ${new Date(r.created_at).toLocaleString()}`}
-                  />
-                </List.Item>
-              )}
-            />
-          )}
-        </Spin>
       </Modal>
     </div>
   )

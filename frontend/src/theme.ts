@@ -28,6 +28,15 @@ export const colors = {
   warning: '#ed7b2f',
 }
 
+// OnlyOffice 可编辑文件类型
+export const OFFICE_EDITABLE_EXTS: string[] = [
+  '.docx', '.doc', '.odt', '.rtf', '.txt', '.html', '.htm', '.mht',
+  '.epub', '.fb2', '.dotx', '.ott', '.docxf', '.oform',
+  '.xlsx', '.xls', '.ods', '.csv', '.xltx', '.ots', '.fods',
+  '.pptx', '.ppt', '.odp', '.ppsx', '.pps', '.potx', '.otp',
+  '.pdf', '.djvu', '.xps', '.oxps',
+]
+
 // 文件类型大图标颜色
 export const fileCardIconColors: Record<string, string> = {
   '.pdf': '#e34d59',
@@ -41,6 +50,13 @@ export const fileCardIconColors: Record<string, string> = {
   '.gif': '#0052D9',
   '.docx': '#0052D9',
   '.doc': '#0052D9',
+  '.odt': '#0052D9',
+  '.ods': '#00a870',
+  '.odp': '#ed7b2f',
+  '.csv': '#00a870',
+  '.epub': '#e34d59',
+  '.djvu': '#e34d59',
+  '.xps': '#e34d59',
   default: colors.textSecondary,
 }
 

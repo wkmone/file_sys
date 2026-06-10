@@ -34,7 +34,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	resp, err := h.authService.Register(c.Request.Context(), &req)
 	if err != nil {
-		util.Error(c, 409, 40901, err.Error())
+		util.EmailExists(c)
 		return
 	}
 
@@ -54,7 +54,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	device := c.GetHeader("User-Agent")
 	resp, err := h.authService.Login(c.Request.Context(), &req, ip, device)
 	if err != nil {
-		util.Unauthorized(c, err.Error())
+		util.InvalidCredentials(c)
 		return
 	}
 
@@ -66,13 +66,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	rawToken, err := c.Cookie("refresh_token")
 	if err != nil {
-		util.Unauthorized(c, "missing refresh token")
+		util.MissingToken(c)
 		return
 	}
 
 	resp, err := h.authService.Refresh(c.Request.Context(), rawToken)
 	if err != nil {
-		util.Unauthorized(c, err.Error())
+		util.InvalidToken(c)
 		return
 	}
 
@@ -102,7 +102,7 @@ func (h *AuthHandler) LogoutAll(c *gin.Context) {
 func (h *AuthHandler) Me(c *gin.Context) {
 	user, err := h.authService.GetCurrentUser(c.Request.Context(), middleware.GetUserID(c))
 	if err != nil {
-		util.NotFound(c, "user not found")
+		util.UserNotFound(c)
 		return
 	}
 	util.Success(c, dto.UserDTO{
@@ -123,7 +123,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	}
 
 	if err := h.authService.ChangePassword(c.Request.Context(), middleware.GetUserID(c), req.OldPassword, req.NewPassword); err != nil {
-		util.Error(c, 400, 40002, err.Error())
+		util.InvalidPassword(c)
 		return
 	}
 	util.Success(c, nil)
@@ -138,7 +138,7 @@ func (h *AuthHandler) ListUsers(c *gin.Context) {
 	}
 	users, total, err := h.userRepo.FindAll(c.Request.Context(), page, pageSize)
 	if err != nil {
-		util.InternalError(c, "failed to fetch users")
+		util.DatabaseError(c)
 		return
 	}
 	util.Success(c, dto.PaginatedResponse{
@@ -157,7 +157,7 @@ func (h *AuthHandler) GetUser(c *gin.Context) {
 	}
 	user, err := h.userRepo.FindByID(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		util.NotFound(c, "user not found")
+		util.UserNotFound(c)
 		return
 	}
 	util.Success(c, dto.UserDTO{
@@ -171,5 +171,34 @@ func (h *AuthHandler) GetUser(c *gin.Context) {
 }
 
 func setRefreshCookie(c *gin.Context, token string) {
-	c.SetCookie("refresh_token", token, 7*24*3600, "/api/v1/auth", "", true, true)
+	c.SetCookie("refresh_token", token, 7*24*3600, "/api/v1/auth", "", false, true)
+}
+
+func (h *AuthHandler) SearchUsers(c *gin.Context) {
+	q := c.Query("q")
+	if q == "" {
+		util.Success(c, []interface{}{})
+		return
+	}
+	if h.userRepo == nil {
+		util.Success(c, []interface{}{})
+		return
+	}
+	users, err := h.userRepo.SearchByEmailOrName(c.Request.Context(), q, 20)
+	if err != nil {
+		util.DatabaseError(c)
+		return
+	}
+	result := make([]dto.UserDTO, 0, len(users))
+	for _, u := range users {
+		result = append(result, dto.UserDTO{
+			ID:          u.ID,
+			Email:       u.Email,
+			DisplayName: u.DisplayName,
+			AvatarURL:   u.AvatarURL,
+			Role:        u.Role,
+			CreatedAt:   u.CreatedAt,
+		})
+	}
+	util.Success(c, result)
 }

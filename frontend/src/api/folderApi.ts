@@ -24,3 +24,11 @@ export const folderApi = {
   share: (id: string, data: { user_id?: string; team_id?: string; permission: string }) =>
     apiClient.post<ApiResponse<null>>(`/folders/${id}/share`, data),
 }
+
+export const folderPermissionApi = {
+  list: (folderId: string) =>
+    apiClient.get<ApiResponse<import('../types/file').FilePermission[]>>(`/folders/${folderId}/permissions`),
+
+  sharedWithMe: () =>
+    apiClient.get<ApiResponse<import('../types/folder').Folder[]>>('/folders/shared-with-me'),
+}

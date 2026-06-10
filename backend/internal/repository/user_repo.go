@@ -56,7 +56,7 @@ func (r *UserRepo) FindByID(ctx context.Context, id string) (*model.User, error)
 
 func (r *UserRepo) FindByIDs(ctx context.Context, ids []string) (map[string]string, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT id, display_name FROM users WHERE id = ANY($1)`, ids)
+		`SELECT id, display_name FROM users WHERE id = ANY($1::uuid[])`, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -114,4 +114,26 @@ func (r *UserRepo) FindAll(ctx context.Context, page, pageSize int) ([]model.Use
 		users = append(users, u)
 	}
 	return users, total, nil
+}
+
+func (r *UserRepo) SearchByEmailOrName(ctx context.Context, query string, limit int) ([]model.User, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT id, email, display_name, avatar_url, role, is_active, last_login_at, created_at, updated_at
+		 FROM users WHERE is_active = true AND (email ILIKE $1 OR display_name ILIKE $1)
+		 ORDER BY display_name ASC LIMIT $2`, "%"+query+"%", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []model.User
+	for rows.Next() {
+		var u model.User
+		if err := rows.Scan(&u.ID, &u.Email, &u.DisplayName, &u.AvatarURL,
+			&u.Role, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, nil
 }

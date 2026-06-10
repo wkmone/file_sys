@@ -29,10 +29,14 @@ type Config struct {
 	MinioUseSSL     bool   `mapstructure:"MINIO_USE_SSL"`
 	JWTAccessSecret  string `mapstructure:"JWT_ACCESS_SECRET"`
 	JWTRefreshSecret string `mapstructure:"JWT_REFRESH_SECRET"`
-	OnlyOfficeDSURL       string `mapstructure:"ONLYOFFICE_DS_URL"`
-	OnlyOfficeJWTSecret   string `mapstructure:"ONLYOFFICE_JWT_SECRET"`
-	OnlyOfficeCallbackURL string `mapstructure:"ONLYOFFICE_CALLBACK_URL"`
-	OnlyOfficeEnabled     bool   // true when OO URL is set
+	OnlyOfficeDSURL              string `mapstructure:"ONLYOFFICE_DS_URL"`
+	OnlyOfficeJWTSecret          string `mapstructure:"ONLYOFFICE_JWT_SECRET"`
+	OnlyOfficeCallbackURL        string `mapstructure:"ONLYOFFICE_CALLBACK_URL"`
+	OnlyOfficeTheme              string `mapstructure:"ONLYOFFICE_THEME"`
+	OnlyOfficeEnabled            bool   // true when OO URL is set
+	OnlyOfficeJWTExpireHours    int    `mapstructure:"ONLYOFFICE_JWT_EXPIRE_HOURS"`
+	OnlyOfficeDocCache          bool   `mapstructure:"ONLYOFFICE_DOC_CACHE"`
+	OnlyOfficeLargeFileThresholdMB int64 `mapstructure:"ONLYOFFICE_LARGE_FILE_THRESHOLD_MB"`
 }
 
 func loadDotEnv(path string) map[string]interface{} {
@@ -75,7 +79,8 @@ var allEnvKeys = []string{
 	"STORAGE_DRIVER", "STORAGE_PATH",
 	"MINIO_ENDPOINT", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_BUCKET",
 	"JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET",
-	"ONLYOFFICE_DS_URL", "ONLYOFFICE_JWT_SECRET", "ONLYOFFICE_CALLBACK_URL",
+	"ONLYOFFICE_DS_URL", "ONLYOFFICE_JWT_SECRET", "ONLYOFFICE_CALLBACK_URL", "ONLYOFFICE_THEME",
+	"ONLYOFFICE_JWT_EXPIRE_HOURS", "ONLYOFFICE_DOC_CACHE", "ONLYOFFICE_LARGE_FILE_THRESHOLD_MB",
 }
 
 func Load() (*Config, error) {
@@ -95,6 +100,9 @@ func Load() (*Config, error) {
 	v.SetDefault("MINIO_ACCESS_KEY", "minioadmin")
 	v.SetDefault("MINIO_SECRET_KEY", "minioadmin")
 	v.SetDefault("MINIO_BUCKET", "file-sys")
+	v.SetDefault("ONLYOFFICE_JWT_EXPIRE_HOURS", 24)
+	v.SetDefault("ONLYOFFICE_DOC_CACHE", true)
+	v.SetDefault("ONLYOFFICE_LARGE_FILE_THRESHOLD_MB", 50)
 
 	// 1) .env file (lowest priority among explicit sources)
 	envMap := loadDotEnv(".env")

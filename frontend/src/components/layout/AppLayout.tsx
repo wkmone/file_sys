@@ -14,6 +14,7 @@ import {
   FileTextOutlined,
   PlusCircleOutlined,
   SettingOutlined,
+  ShareAltOutlined,
 } from '@ant-design/icons'
 import { useAuthStore } from '../../store/authStore'
 import { useTeamRefresh } from '../../store/teamStore'
@@ -48,6 +49,7 @@ export default function AppLayout() {
     const path = location.pathname
     if (path === '/') return '/'
     if (path.startsWith('/my/files')) return '/my/files'
+    if (path.startsWith('/my/shared')) return '/my/shared'
     if (path.startsWith('/my/trash')) return '/my/trash'
     if (path.startsWith('/teams/')) {
       // Check if it's a team workspace route
@@ -115,6 +117,7 @@ export default function AppLayout() {
       label: '个人空间',
       children: [
         { key: '/my/files', icon: <FileTextOutlined />, label: '我的文件', onClick: () => navigate('/my/files') },
+        { key: '/my/shared', icon: <ShareAltOutlined />, label: '与我共享', onClick: () => navigate('/my/shared') },
         { key: '/my/trash', icon: <DeleteOutlined />, label: '回收站', onClick: () => navigate('/my/trash') },
       ],
     },
@@ -184,6 +187,7 @@ export default function AppLayout() {
             if (key === 'personal' || key === 'team-space') return
             if (key === '/') { navigate('/'); return }
             if (key === '/my/files') navigate('/my/files')
+            else if (key === '/my/shared') navigate('/my/shared')
             else if (key === '/my/trash') navigate('/my/trash')
             else if (key === '/teams') navigate('/teams')
             else if (key === '/profile') navigate('/profile')

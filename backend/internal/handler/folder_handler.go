@@ -3,12 +3,13 @@ package handler
 import (
 	"strconv"
 
+	"github.com/gin-gonic/gin"
+
 	"file_sys/backend/internal/dto"
 	"file_sys/backend/internal/middleware"
+	"file_sys/backend/internal/model"
 	"file_sys/backend/internal/service"
 	"file_sys/backend/internal/util"
-
-	"github.com/gin-gonic/gin"
 )
 
 type FolderHandler struct {
@@ -25,28 +26,36 @@ func (h *FolderHandler) List(c *gin.Context) {
 	parentID := c.Query("parent_id")
 	teamID := c.Query("team_id")
 
-	var pid *string
+	userID := middleware.GetUserID(c)
+
+	var parentIDPtr *string
 	if parentID != "" {
-		pid = &parentID
+		parentIDPtr = &parentID
 	}
 
-	var folders interface{}
+	var folders []model.Folder
 	var total int64
 	var err error
 
 	if teamID != "" {
-		folders, total, err = h.folderService.ListByTeam(c.Request.Context(), teamID, pid, page, pageSize)
+		folders, total, err = h.folderService.ListByTeam(c.Request.Context(), teamID, parentIDPtr, userID, page, pageSize)
 	} else {
-		folders, total, err = h.folderService.ListByParent(c.Request.Context(), pid, middleware.GetUserID(c), page, pageSize)
+		folders, total, err = h.folderService.ListByParent(c.Request.Context(), parentIDPtr, userID, page, pageSize)
 	}
 
 	if err != nil {
-		util.InternalError(c, "failed to list folders")
+		util.DatabaseError(c)
 		return
 	}
 
+	// Convert to interface slice for pagination
+	items := make([]interface{}, len(folders))
+	for i, f := range folders {
+		items[i] = f
+	}
+
 	util.Success(c, dto.PaginatedResponse{
-		Items:      folders,
+		Items:      items,
 		Total:      total,
 		Page:       page,
 		PageSize:   pageSize,
@@ -61,21 +70,24 @@ func (h *FolderHandler) Create(c *gin.Context) {
 		return
 	}
 
-	folder, err := h.folderService.Create(c.Request.Context(), &req, middleware.GetUserID(c))
+	userID := middleware.GetUserID(c)
+	folder, err := h.folderService.Create(c.Request.Context(), &req, userID)
 	if err != nil {
-		util.InternalError(c, "create folder failed")
+		util.FolderExists(c)
 		return
 	}
+
 	util.Created(c, folder)
 }
 
 func (h *FolderHandler) Get(c *gin.Context) {
-	f, err := h.folderService.GetByID(c.Request.Context(), c.Param("id"))
+	folder, err := h.folderService.GetByID(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		util.NotFound(c, "folder not found")
+		util.FolderNotFound(c)
 		return
 	}
-	util.Success(c, f)
+
+	util.Success(c, folder)
 }
 
 func (h *FolderHandler) Update(c *gin.Context) {
@@ -84,28 +96,38 @@ func (h *FolderHandler) Update(c *gin.Context) {
 		util.ValidationError(c, err.Error())
 		return
 	}
-	if err := h.folderService.Update(c.Request.Context(), c.Param("id"), &req); err != nil {
-		util.InternalError(c, "update failed")
+
+	err := h.folderService.Update(c.Request.Context(), c.Param("id"), &req)
+	if err != nil {
+		util.FolderNotFound(c)
 		return
 	}
+
 	util.Success(c, nil)
 }
 
 func (h *FolderHandler) Delete(c *gin.Context) {
-	if err := h.folderService.Delete(c.Request.Context(), c.Param("id")); err != nil {
-		util.InternalError(c, "delete failed")
+	err := h.folderService.Delete(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		util.FolderNotFound(c)
 		return
 	}
+
 	util.Success(c, nil)
 }
 
 func (h *FolderHandler) Tree(c *gin.Context) {
-	folders, err := h.folderService.GetAllByOwner(c.Request.Context(), middleware.GetUserID(c))
+	userID := middleware.GetUserID(c)
+	folders, err := h.folderService.GetAllByOwner(c.Request.Context(), userID)
 	if err != nil {
-		util.InternalError(c, "failed to get folder tree")
+		util.DatabaseError(c)
 		return
 	}
-	util.Success(c, folders)
+
+	// Build tree - simple flat list for now
+	util.Success(c, gin.H{
+		"folders": folders,
+	})
 }
 
 func (h *FolderHandler) Share(c *gin.Context) {
@@ -114,9 +136,13 @@ func (h *FolderHandler) Share(c *gin.Context) {
 		util.ValidationError(c, err.Error())
 		return
 	}
-	if err := h.folderService.Share(c.Request.Context(), c.Param("id"), middleware.GetUserID(c), &req); err != nil {
+
+	userID := middleware.GetUserID(c)
+	err := h.folderService.Share(c.Request.Context(), c.Param("id"), userID, &req)
+	if err != nil {
 		util.InternalError(c, "share failed")
 		return
 	}
+
 	util.Success(c, nil)
 }

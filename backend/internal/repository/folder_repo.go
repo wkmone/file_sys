@@ -240,18 +240,26 @@ func (r *FolderRepo) PermanentDelete(ctx context.Context, id string) error {
 	return err
 }
 
-func (r *FolderRepo) FindByTeam(ctx context.Context, teamID string, parentID *string, page, pageSize int) ([]model.Folder, int64, error) {
+func (r *FolderRepo) FindByTeam(ctx context.Context, teamID string, parentID *string, userID string, page, pageSize int) ([]model.Folder, int64, error) {
 	var total int64
 	var rows pgx.Rows
 	var err error
 
 	if parentID == nil || *parentID == "" {
 		err = r.db.QueryRow(ctx,
-			`SELECT COUNT(*) FROM folders WHERE parent_id IS NULL AND team_id = $1 AND is_deleted = false`, teamID,
+			`SELECT COUNT(*) FROM folders fo
+			 WHERE fo.parent_id IS NULL AND fo.is_deleted = false
+			   AND (fo.team_id = $1 OR EXISTS (
+			       SELECT 1 FROM permissions p WHERE p.folder_id = fo.id AND p.user_id = $2
+			   ))`, teamID, userID,
 		).Scan(&total)
 	} else {
 		err = r.db.QueryRow(ctx,
-			`SELECT COUNT(*) FROM folders WHERE parent_id = $1 AND team_id = $2 AND is_deleted = false`, *parentID, teamID,
+			`SELECT COUNT(*) FROM folders fo
+			 WHERE fo.parent_id = $1 AND fo.is_deleted = false
+			   AND (fo.team_id = $2 OR EXISTS (
+			       SELECT 1 FROM permissions p WHERE p.folder_id = fo.id AND p.user_id = $3
+			   ))`, *parentID, teamID, userID,
 		).Scan(&total)
 	}
 	if err != nil {
@@ -261,14 +269,24 @@ func (r *FolderRepo) FindByTeam(ctx context.Context, teamID string, parentID *st
 	offset := (page - 1) * pageSize
 	if parentID == nil || *parentID == "" {
 		rows, err = r.db.Query(ctx,
-			`SELECT id, name, parent_id, owner_id, team_id, folder_path, is_deleted, created_at, updated_at
-			 FROM folders WHERE parent_id IS NULL AND team_id = $1 AND is_deleted = false
-			 ORDER BY name ASC LIMIT $2 OFFSET $3`, teamID, pageSize, offset)
+			`SELECT fo.id, fo.name, fo.parent_id, fo.owner_id, fo.team_id,
+			        fo.folder_path, fo.is_deleted, fo.created_at, fo.updated_at
+			 FROM folders fo
+			 WHERE fo.parent_id IS NULL AND fo.is_deleted = false
+			   AND (fo.team_id = $1 OR EXISTS (
+			       SELECT 1 FROM permissions p WHERE p.folder_id = fo.id AND p.user_id = $2
+			   ))
+			 ORDER BY fo.name ASC LIMIT $3 OFFSET $4`, teamID, userID, pageSize, offset)
 	} else {
 		rows, err = r.db.Query(ctx,
-			`SELECT id, name, parent_id, owner_id, team_id, folder_path, is_deleted, created_at, updated_at
-			 FROM folders WHERE parent_id = $1 AND team_id = $2 AND is_deleted = false
-			 ORDER BY name ASC LIMIT $3 OFFSET $4`, *parentID, teamID, pageSize, offset)
+			`SELECT fo.id, fo.name, fo.parent_id, fo.owner_id, fo.team_id,
+			        fo.folder_path, fo.is_deleted, fo.created_at, fo.updated_at
+			 FROM folders fo
+			 WHERE fo.parent_id = $1 AND fo.is_deleted = false
+			   AND (fo.team_id = $2 OR EXISTS (
+			       SELECT 1 FROM permissions p WHERE p.folder_id = fo.id AND p.user_id = $3
+			   ))
+			 ORDER BY fo.name ASC LIMIT $4 OFFSET $5`, *parentID, teamID, userID, pageSize, offset)
 	}
 	if err != nil {
 		return nil, 0, err

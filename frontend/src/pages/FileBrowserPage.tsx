@@ -4,22 +4,26 @@ import { Button, Space, Breadcrumb, Spin, Segmented, Input } from 'antd'
 import {
   UploadOutlined,
   FolderAddOutlined,
+  FileAddOutlined,
   HomeOutlined,
   UnorderedListOutlined,
   AppstoreOutlined,
   SearchOutlined,
   TeamOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons'
 import FileList from '../components/files/FileList'
 import FileTable from '../components/files/FileTable'
 import FileUpload from '../components/files/FileUpload'
 import FolderCreateDialog from '../components/folders/FolderCreateDialog'
+import FileCreateDialog from '../components/files/FileCreateDialog'
+import ShareDialog from '../components/files/ShareDialog'
 import { fileApi } from '../api/fileApi'
 import { folderApi } from '../api/folderApi'
 import { teamApi } from '../api/teamApi'
 import type { FileItem } from '../types/file'
 import type { Folder } from '../types/folder'
-import { colors } from '../theme'
+import { colors, OFFICE_EDITABLE_EXTS } from '../theme'
 
 export default function FileBrowserPage() {
   const { folderId, teamId } = useParams<{ folderId?: string; teamId?: string }>()
@@ -36,11 +40,14 @@ export default function FileBrowserPage() {
   const [loading, setLoading] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [createFolderOpen, setCreateFolderOpen] = useState(false)
+  const [createFileOpen, setCreateFileOpen] = useState(false)
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table')
   const [breadcrumbPath, setBreadcrumbPath] = useState<{ id: string; name: string }[]>([])
   const internalNav = useRef(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [teamName, setTeamName] = useState('')
+  const [shareOpen, setShareOpen] = useState(false)
+  const [shareFile, setShareFile] = useState<FileItem | null>(null)
 
   // Load team name for breadcrumb
   useEffect(() => {
@@ -112,12 +119,17 @@ export default function FileBrowserPage() {
   }
 
   const handleEditFile = (file: FileItem) => {
-    const isOffice = ['.docx', '.xlsx', '.pptx'].includes(file.file_ext)
+    const isOffice = OFFICE_EDITABLE_EXTS.includes(file.file_ext)
     if (isOffice) {
       window.open(`/editor/${file.id}`, '_blank')
     } else {
       window.open(fileApi.downloadUrl(file.id), '_blank')
     }
+  }
+
+  const handleShare = (file: FileItem) => {
+    setShareFile(file)
+    setShareOpen(true)
   }
 
   // Build breadcrumb items
@@ -171,6 +183,9 @@ export default function FileBrowserPage() {
       <Button size="small" icon={<FolderAddOutlined />} onClick={() => setCreateFolderOpen(true)}>
         新建文件夹
       </Button>
+      <Button size="small" icon={<FileAddOutlined />} onClick={() => setCreateFileOpen(true)}>
+        新建文件
+      </Button>
       <Button size="small" type="primary" icon={<UploadOutlined />} onClick={() => setUploadOpen(true)}>
         上传文件
       </Button>
@@ -210,6 +225,7 @@ export default function FileBrowserPage() {
               { label: '', value: 'grid', icon: <AppstoreOutlined /> },
             ]}
           />
+          <Button size="small" icon={<ReloadOutlined />} onClick={fetchData} loading={loading} />
           {toolbarButtons}
         </Space>
       </div>
@@ -224,6 +240,7 @@ export default function FileBrowserPage() {
             onEnterFolder={handleEnterFolder}
             onEditFile={handleEditFile}
             onRefresh={fetchData}
+            onShare={handleShare}
           />
         </div>
       ) : (
@@ -268,7 +285,7 @@ export default function FileBrowserPage() {
               </div>
             )}
             <Spin spinning={loading}>
-              <FileList files={filteredFiles} onEdit={handleEditFile} onRefresh={fetchData} />
+              <FileList files={filteredFiles} onEdit={handleEditFile} onRefresh={fetchData} onShare={handleShare} />
             </Spin>
           </>
         </div>
@@ -288,6 +305,23 @@ export default function FileBrowserPage() {
         teamId={scope === 'team' ? teamId : null}
         onClose={() => setCreateFolderOpen(false)}
         onSuccess={fetchData}
+      />
+
+      <FileCreateDialog
+        open={createFileOpen}
+        folderId={folderId || null}
+        teamId={scope === 'team' ? teamId : null}
+        onClose={() => setCreateFileOpen(false)}
+        onSuccess={fetchData}
+      />
+
+      <ShareDialog
+        open={shareOpen}
+        resourceType="file"
+        resourceId={shareFile?.id || ''}
+        resourceName={shareFile?.name || ''}
+        scope={scope}
+        onClose={() => { setShareOpen(false); setShareFile(null) }}
       />
     </div>
   )

@@ -114,7 +114,7 @@ func (s *TeamService) RequestJoin(ctx context.Context, teamID, userID string) er
 	if isMember {
 		return errors.New("already a member of this team")
 	}
-	return s.teamRepo.CreateJoinRequest(ctx, teamID, userID)
+	return s.teamRepo.AddMember(ctx, teamID, userID, "member")
 }
 
 func (s *TeamService) ListJoinRequests(ctx context.Context, teamID, userID string) ([]model.JoinRequest, error) {

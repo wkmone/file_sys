@@ -55,6 +55,12 @@ type UpdateFileRequest struct {
 	FolderID *string `json:"folder_id"`
 }
 
+type CreateBlankFileRequest struct {
+	Name     string  `json:"name" binding:"required,min=1,max=255"`
+	FileExt  string  `json:"file_ext" binding:"required,oneof=.docx .xlsx .pptx"`
+	FolderID *string `json:"folder_id"`
+}
+
 // Batch upload
 type BatchUploadManifestEntry struct {
 	Path        string `json:"path"`
@@ -140,7 +146,7 @@ type HandleJoinRequest struct {
 // OnlyOffice
 type EditorConfigRequest struct {
 	FileID string `json:"file_id" binding:"required"`
-	Mode   string `json:"mode" binding:"required,oneof=edit view"`
+	Mode   string `json:"mode" binding:"required,oneof=edit view comment review fillForms"`
 }
 
 type EditorConfigResponse struct {
@@ -157,21 +163,46 @@ type DocumentConfig struct {
 }
 
 type DocumentPermissions struct {
-	Edit     bool `json:"edit"`
-	Download bool `json:"download"`
-	Review   bool `json:"review"`
+	Edit                 bool `json:"edit"`
+	Comment              bool `json:"comment"`
+	Review               bool `json:"review"`
+	FillForms            bool `json:"fillForms"`
+	ModifyFilter         bool `json:"modifyFilter"`
+	ModifyContentControl bool `json:"modifyContentControl"`
+	Copy                 bool `json:"copy"`
+	Download             bool `json:"download"`
+	Print                bool `json:"print"`
 }
 
 type EditorSettings struct {
-	CallbackURL string     `json:"callbackUrl"`
-	User        EditorUser `json:"user"`
-	Mode        string     `json:"mode"`
-	Lang        string     `json:"lang"`
+	CallbackURL   string              `json:"callbackUrl"`
+	User          EditorUser          `json:"user"`
+	Mode          string              `json:"mode"`
+	Lang          string              `json:"lang"`
+	Customization EditorCustomization `json:"customization"`
 }
 
 type EditorUser struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+type EditorCustomization struct {
+	Autosave            bool   `json:"autosave"`
+	Chat                bool   `json:"chat"`
+	Comments            bool   `json:"comments"`
+	CompactHeader       bool   `json:"compactHeader"`
+	CompactToolbar      bool   `json:"compactToolbar"`
+	Forcesave           bool   `json:"forcesave"`
+	Help                bool   `json:"help"`
+	HideRightMenu       bool   `json:"hideRightMenu"`
+	HideRulers          bool   `json:"hideRulers"`
+	Spellcheck          bool   `json:"spellcheck"`
+	UiTheme             string `json:"uiTheme"`
+	ToolbarHideFileName bool   `json:"toolbarHideFileName"`
+	Zoom                int    `json:"zoom"`
+	Macros              bool   `json:"macros"`
+	Plugins             bool   `json:"plugins"`
 }
 
 type OnlyOfficeCallback struct {

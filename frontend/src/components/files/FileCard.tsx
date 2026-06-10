@@ -4,16 +4,19 @@ import {
   EditOutlined,
   DownloadOutlined,
   DeleteOutlined,
+  ShareAltOutlined,
+  TeamOutlined,
 } from '@ant-design/icons'
 import type { FileItem } from '../../types/file'
 import { fileApi } from '../../api/fileApi'
 import FileIcon from '../common/FileIcon'
-import { colors } from '../../theme'
+import { colors, OFFICE_EDITABLE_EXTS } from '../../theme'
 
 interface FileCardProps {
   file: FileItem
   onEdit: (file: FileItem) => void
   onDelete: () => void
+  onShare: (file: FileItem) => void
 }
 
 function formatSize(bytes: number): string {
@@ -22,7 +25,7 @@ function formatSize(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
-export default function FileCard({ file, onEdit, onDelete }: FileCardProps) {
+export default function FileCard({ file, onEdit, onDelete, onShare }: FileCardProps) {
   const handleDownload = () => {
     window.open(fileApi.downloadUrl(file.id), '_blank')
   }
@@ -39,12 +42,13 @@ export default function FileCard({ file, onEdit, onDelete }: FileCardProps) {
 
   const menuItems = [
     { key: 'edit', icon: <EditOutlined />, label: '编辑', onClick: () => onEdit(file) },
+    { key: 'share', icon: <ShareAltOutlined />, label: '共享', onClick: () => onShare(file) },
     { key: 'download', icon: <DownloadOutlined />, label: '下载', onClick: handleDownload },
     { type: 'divider' as const },
     { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true, onClick: handleDelete },
   ]
 
-  const isOffice = ['.docx', '.xlsx', '.pptx'].includes(file.file_ext)
+  const isOffice = OFFICE_EDITABLE_EXTS.includes(file.file_ext)
 
   return (
     <div
@@ -60,7 +64,7 @@ export default function FileCard({ file, onEdit, onDelete }: FileCardProps) {
         transition: 'all 0.2s',
         position: 'relative',
       }}
-      onDoubleClick={() => {
+      onClick={() => {
         if (isOffice) onEdit(file)
         else handleDownload()
       }}
@@ -73,6 +77,13 @@ export default function FileCard({ file, onEdit, onDelete }: FileCardProps) {
         e.currentTarget.style.boxShadow = 'none'
       }}
     >
+      {/* Shared indicator in top-left */}
+      {(file.permission || file.shared_by) && (
+        <div style={{ position: 'absolute', top: 8, left: 8 }}>
+          <TeamOutlined style={{ fontSize: 14, color: colors.primary }} title="已共享" />
+        </div>
+      )}
+
       {/* Action menu in top-right */}
       <div style={{ position: 'absolute', top: 8, right: 8 }}>
         <Dropdown menu={{ items: menuItems }} trigger={['click']}>

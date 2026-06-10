@@ -1,7 +1,7 @@
 import type { AxiosProgressEvent } from 'axios'
 import apiClient from './client'
 import type { ApiResponse, PaginatedResponse } from '../types/api'
-import type { FileItem, FileVersion, BatchUploadResponse } from '../types/file'
+import type { FileItem, FileVersion, FilePermission, BatchUploadResponse } from '../types/file'
 
 export const fileApi = {
   list: (params: { folder_id?: string; team_id?: string; page?: number; page_size?: number }) =>
@@ -46,4 +46,15 @@ export const fileApi = {
 
   restoreVersion: (fileId: string, versionId: string) =>
     apiClient.post<ApiResponse<null>>(`/files/${fileId}/versions/${versionId}/restore`),
+
+  createBlank: (data: { name: string; file_ext: string; folder_id?: string }, teamId?: string) =>
+    apiClient.post<ApiResponse<FileItem>>('/files/blank', data, { params: { team_id: teamId } }),
+}
+
+export const filePermissionApi = {
+  list: (fileId: string) =>
+    apiClient.get<ApiResponse<FilePermission[]>>(`/files/${fileId}/permissions`),
+
+  sharedWithMe: () =>
+    apiClient.get<ApiResponse<FileItem[]>>('/files/shared-with-me'),
 }

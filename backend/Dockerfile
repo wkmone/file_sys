@@ -1,6 +1,5 @@
-FROM golang:1.23-alpine AS builder
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/golang:1.25-alpine AS builder
 
-RUN apk add --no-cache gcc musl-dev
 
 # ========== 设置国内Go代理，解决超时 ==========
 ENV GOPROXY=https://goproxy.cn,direct
@@ -20,5 +19,5 @@ COPY --from=builder /build/server .
 
 RUN mkdir -p /app/storage
 
-EXPOSE 8080
+EXPOSE 10040
 ENTRYPOINT ["/app/server"]

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"file_sys/backend/internal/dto"
-	"file_sys/backend/internal/middleware"
 	"file_sys/backend/internal/service"
 	"file_sys/backend/internal/util"
 
@@ -18,11 +17,23 @@ func NewTeamHandler(teamService *service.TeamService) *TeamHandler {
 }
 
 func (h *TeamHandler) List(c *gin.Context) {
-	teams, err := h.teamService.ListByUser(c.Request.Context(), middleware.GetUserID(c))
+	userID, _ := c.Get("user_id")
+	teams, err := h.teamService.ListByUser(c.Request.Context(), userID.(string))
 	if err != nil {
-		util.InternalError(c, "failed to list teams")
+		util.DatabaseError(c)
 		return
 	}
+
+	util.Success(c, teams)
+}
+
+func (h *TeamHandler) Discover(c *gin.Context) {
+	teams, err := h.teamService.ListAllTeams(c.Request.Context())
+	if err != nil {
+		util.DatabaseError(c)
+		return
+	}
+
 	util.Success(c, teams)
 }
 
@@ -33,20 +44,23 @@ func (h *TeamHandler) Create(c *gin.Context) {
 		return
 	}
 
-	team, err := h.teamService.Create(c.Request.Context(), &req, middleware.GetUserID(c))
+	userID, _ := c.Get("user_id")
+	team, err := h.teamService.Create(c.Request.Context(), &req, userID.(string))
 	if err != nil {
-		util.InternalError(c, "create team failed")
+		util.Conflict(c, "team already exists")
 		return
 	}
+
 	util.Created(c, team)
 }
 
 func (h *TeamHandler) Get(c *gin.Context) {
 	team, err := h.teamService.GetByID(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		util.NotFound(c, "team not found")
+		util.TeamNotFound(c)
 		return
 	}
+
 	util.Success(c, team)
 }
 
@@ -56,27 +70,34 @@ func (h *TeamHandler) Update(c *gin.Context) {
 		util.ValidationError(c, err.Error())
 		return
 	}
-	if err := h.teamService.Update(c.Request.Context(), c.Param("id"), &req); err != nil {
-		util.InternalError(c, "update failed")
+
+	err := h.teamService.Update(c.Request.Context(), c.Param("id"), &req)
+	if err != nil {
+		util.TeamNotFound(c)
 		return
 	}
+
 	util.Success(c, nil)
 }
 
 func (h *TeamHandler) Delete(c *gin.Context) {
-	if err := h.teamService.Delete(c.Request.Context(), c.Param("id"), middleware.GetUserID(c)); err != nil {
-		util.Error(c, 403, 40302, err.Error())
+	userID, _ := c.Get("user_id")
+	err := h.teamService.Delete(c.Request.Context(), c.Param("id"), userID.(string))
+	if err != nil {
+		util.TeamNotFound(c)
 		return
 	}
+
 	util.Success(c, nil)
 }
 
 func (h *TeamHandler) Members(c *gin.Context) {
 	members, err := h.teamService.ListMembers(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		util.InternalError(c, "failed to list members")
+		util.TeamNotFound(c)
 		return
 	}
+
 	util.Success(c, members)
 }
 
@@ -86,11 +107,15 @@ func (h *TeamHandler) AddMember(c *gin.Context) {
 		util.ValidationError(c, err.Error())
 		return
 	}
-	if err := h.teamService.AddMember(c.Request.Context(), c.Param("id"), middleware.GetUserID(c), &req); err != nil {
-		util.Error(c, 403, 40303, err.Error())
+
+	userID, _ := c.Get("user_id")
+	err := h.teamService.AddMember(c.Request.Context(), c.Param("id"), userID.(string), &req)
+	if err != nil {
+		util.Conflict(c, "member already exists")
 		return
 	}
-	util.Success(c, nil)
+
+	util.Created(c, nil)
 }
 
 func (h *TeamHandler) UpdateMember(c *gin.Context) {
@@ -99,53 +124,58 @@ func (h *TeamHandler) UpdateMember(c *gin.Context) {
 		util.ValidationError(c, err.Error())
 		return
 	}
-	if err := h.teamService.UpdateMemberRole(c.Request.Context(), c.Param("id"), middleware.GetUserID(c), c.Param("userId"), req.Role); err != nil {
-		util.Error(c, 403, 40304, err.Error())
+
+	userID, _ := c.Get("user_id")
+	err := h.teamService.UpdateMemberRole(c.Request.Context(), c.Param("id"), userID.(string), c.Param("userId"), req.Role)
+	if err != nil {
+		util.TeamNotFound(c)
 		return
 	}
+
 	util.Success(c, nil)
 }
 
 func (h *TeamHandler) RemoveMember(c *gin.Context) {
-	if err := h.teamService.RemoveMember(c.Request.Context(), c.Param("id"), middleware.GetUserID(c), c.Param("userId")); err != nil {
-		util.Error(c, 403, 40305, err.Error())
-		return
-	}
-	util.Success(c, nil)
-}
-
-func (h *TeamHandler) Discover(c *gin.Context) {
-	teams, err := h.teamService.ListAllTeams(c.Request.Context())
+	userID, _ := c.Get("user_id")
+	err := h.teamService.RemoveMember(c.Request.Context(), c.Param("id"), userID.(string), c.Param("userId"))
 	if err != nil {
-		util.InternalError(c, "failed to list teams")
+		util.TeamNotFound(c)
 		return
 	}
-	util.Success(c, teams)
+
+	util.Success(c, nil)
 }
 
 func (h *TeamHandler) RequestJoin(c *gin.Context) {
-	if err := h.teamService.RequestJoin(c.Request.Context(), c.Param("id"), middleware.GetUserID(c)); err != nil {
-		util.Error(c, 400, 40001, err.Error())
+	userID, _ := c.Get("user_id")
+	err := h.teamService.RequestJoin(c.Request.Context(), c.Param("id"), userID.(string))
+	if err != nil {
+		util.Conflict(c, "request already exists")
 		return
 	}
-	util.Success(c, nil)
+
+	util.Created(c, nil)
 }
 
 func (h *TeamHandler) PendingRequest(c *gin.Context) {
-	jr, err := h.teamService.GetPendingRequest(c.Request.Context(), c.Param("id"), middleware.GetUserID(c))
+	userID, _ := c.Get("user_id")
+	req, err := h.teamService.GetPendingRequest(c.Request.Context(), c.Param("id"), userID.(string))
 	if err != nil {
-		util.Success(c, nil)
+		util.NotFound(c, "no pending request")
 		return
 	}
-	util.Success(c, jr)
+
+	util.Success(c, req)
 }
 
 func (h *TeamHandler) ListJoinRequests(c *gin.Context) {
-	requests, err := h.teamService.ListJoinRequests(c.Request.Context(), c.Param("id"), middleware.GetUserID(c))
+	userID, _ := c.Get("user_id")
+	requests, err := h.teamService.ListJoinRequests(c.Request.Context(), c.Param("id"), userID.(string))
 	if err != nil {
-		util.Error(c, 403, 40306, err.Error())
+		util.TeamNotFound(c)
 		return
 	}
+
 	util.Success(c, requests)
 }
 
@@ -155,9 +185,13 @@ func (h *TeamHandler) HandleJoinRequest(c *gin.Context) {
 		util.ValidationError(c, err.Error())
 		return
 	}
-	if err := h.teamService.HandleJoinRequest(c.Request.Context(), c.Param("requestId"), req.Status, middleware.GetUserID(c)); err != nil {
-		util.Error(c, 403, 40307, err.Error())
+
+	userID, _ := c.Get("user_id")
+	err := h.teamService.HandleJoinRequest(c.Request.Context(), c.Param("requestId"), req.Status, userID.(string))
+	if err != nil {
+		util.NotFound(c, "request not found")
 		return
 	}
+
 	util.Success(c, nil)
 }

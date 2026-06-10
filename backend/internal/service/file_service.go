@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"os"
 	"path"
@@ -279,6 +280,7 @@ func (s *FileService) enrichOwnerNames(ctx context.Context, files []model.File) 
 	}
 	names, err := s.userRepo.FindByIDs(ctx, ownerIDs)
 	if err != nil {
+		log.Printf("enrichOwnerNames: FindByIDs failed: %v", err)
 		return
 	}
 	for i := range files {
@@ -297,8 +299,8 @@ func (s *FileService) ListByFolder(ctx context.Context, folderID *string, ownerI
 	return files, total, nil
 }
 
-func (s *FileService) ListByTeam(ctx context.Context, teamID string, folderID *string, page, pageSize int) ([]model.File, int64, error) {
-	files, total, err := s.fileRepo.FindByTeam(ctx, teamID, folderID, page, pageSize)
+func (s *FileService) ListByTeam(ctx context.Context, teamID string, folderID *string, userID string, page, pageSize int) ([]model.File, int64, error) {
+	files, total, err := s.fileRepo.FindByTeam(ctx, teamID, folderID, userID, page, pageSize)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -457,17 +459,94 @@ func (s *FileService) RetrieveStorage(ctx context.Context, key string) (io.ReadC
 	return s.store.Retrieve(ctx, key)
 }
 
+func (s *FileService) CreateBlank(ctx context.Context, name, ext string, folderID *string, ownerID string, teamID *string) (*model.File, error) {
+	data, err := generateBlankFile(ext)
+	if err != nil {
+		return nil, fmt.Errorf("generate blank file: %w", err)
+	}
+
+	hash, err := storage.HashStream(bytes.NewReader(data), &bytes.Buffer{})
+	if err != nil {
+		return nil, fmt.Errorf("hash blank file: %w", err)
+	}
+
+	key := storage.StorageKey(hash)
+	mimeType := detectMimeType(ext)
+
+	if err := s.store.Store(ctx, key, bytes.NewReader(data), mimeType); err != nil {
+		return nil, fmt.Errorf("store blank file: %w", err)
+	}
+
+	file := &model.File{
+		Name:           name,
+		OriginalName:   name,
+		FolderID:       folderID,
+		OwnerID:        ownerID,
+		TeamID:         teamID,
+		MimeType:       mimeType,
+		FileSize:       int64(len(data)),
+		FileExt:        ext,
+		StorageKey:     key,
+		ContentHash:    hash,
+		CurrentVersion: 1,
+	}
+	if err := s.fileRepo.Create(ctx, file); err != nil {
+		return nil, err
+	}
+
+	version := &model.FileVersion{
+		FileID:        file.ID,
+		VersionNumber: 1,
+		StorageKey:    key,
+		FileSize:      int64(len(data)),
+		ContentHash:   hash,
+		CreatedBy:     &ownerID,
+	}
+	if err := s.versionRepo.Create(ctx, version); err != nil {
+		return nil, err
+	}
+
+	return file, nil
+}
+
 func detectMimeType(ext string) string {
 	mimeTypes := map[string]string{
-		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-		".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-		".pdf":  "application/pdf",
-		".txt":  "text/plain",
-		".png":  "image/png",
-		".jpg":  "image/jpeg",
-		".jpeg": "image/jpeg",
-		".gif":  "image/gif",
+		".docx":  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		".doc":   "application/msword",
+		".odt":   "application/vnd.oasis.opendocument.text",
+		".rtf":   "application/rtf",
+		".txt":   "text/plain",
+		".html":  "text/html",
+		".htm":   "text/html",
+		".mht":   "multipart/related",
+		".epub":  "application/epub+zip",
+		".fb2":   "application/x-fictionbook+xml",
+		".dotx":  "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+		".ott":   "application/vnd.oasis.opendocument.text-template",
+		".docxf": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		".oform": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		".xlsx":  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		".xls":   "application/vnd.ms-excel",
+		".ods":   "application/vnd.oasis.opendocument.spreadsheet",
+		".csv":   "text/csv",
+		".xltx":  "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+		".ots":   "application/vnd.oasis.opendocument.spreadsheet-template",
+		".fods":  "application/vnd.oasis.opendocument.spreadsheet-flat-xml",
+		".pptx":  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		".ppt":   "application/vnd.ms-powerpoint",
+		".odp":   "application/vnd.oasis.opendocument.presentation",
+		".ppsx":  "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
+		".pps":   "application/vnd.ms-powerpoint",
+		".potx":  "application/vnd.openxmlformats-officedocument.presentationml.template",
+		".otp":   "application/vnd.oasis.opendocument.presentation-template",
+		".pdf":   "application/pdf",
+		".djvu":  "image/vnd.djvu",
+		".xps":   "application/vnd.ms-xpsdocument",
+		".oxps":  "application/oxps",
+		".png":   "image/png",
+		".jpg":   "image/jpeg",
+		".jpeg":  "image/jpeg",
+		".gif":   "image/gif",
 	}
 	if m, ok := mimeTypes[ext]; ok {
 		return m

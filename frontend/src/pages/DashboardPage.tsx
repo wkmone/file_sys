@@ -13,12 +13,12 @@ import {
 } from '@ant-design/icons'
 import { useAuthStore } from '../store/authStore'
 import { useTeamRefresh } from '../store/teamStore'
-import { fileApi } from '../api/fileApi'
+import { fileApi, filePermissionApi } from '../api/fileApi'
 import { teamApi } from '../api/teamApi'
 import FileIcon from '../components/common/FileIcon'
 import type { FileItem } from '../types/file'
 import type { Team } from '../types/team'
-import { colors, spacing } from '../theme'
+import { colors, spacing, OFFICE_EDITABLE_EXTS } from '../theme'
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return bytes + ' B'
@@ -50,14 +50,23 @@ export default function DashboardPage() {
   const navigate = useNavigate()
   const teamsVersion = useTeamRefresh((s) => s.version)
   const [recentFiles, setRecentFiles] = useState<FileItem[]>([])
+  const [sharedFiles, setSharedFiles] = useState<FileItem[]>([])
   const [teams, setTeams] = useState<Team[]>([])
   const [loading, setLoading] = useState(true)
+  const [sharedLoading, setSharedLoading] = useState(true)
 
   useEffect(() => {
     fileApi.list({ page_size: 6 })
       .then((res) => setRecentFiles(res.data.data?.items || []))
       .catch(() => {})
       .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    filePermissionApi.sharedWithMe()
+      .then((res) => setSharedFiles((res.data.data || []).slice(0, 6)))
+      .catch(() => {})
+      .finally(() => setSharedLoading(false))
   }, [])
 
   useEffect(() => {
@@ -244,8 +253,8 @@ export default function DashboardPage() {
           {recentFiles.map((file) => (
             <Col key={file.id} xs={24} sm={12} lg={8}>
               <div
-                onDoubleClick={() => {
-                  const isOffice = ['.docx', '.xlsx', '.pptx'].includes(file.file_ext)
+                onClick={() => {
+                  const isOffice = OFFICE_EDITABLE_EXTS.includes(file.file_ext)
                   if (isOffice) navigate(`/editor/${file.id}`)
                   else window.open(fileApi.downloadUrl(file.id), '_blank')
                 }}
@@ -261,12 +270,14 @@ export default function DashboardPage() {
                   transition: 'all 0.2s',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = colors.primaryLight
-                  e.currentTarget.style.background = '#fafbfd'
+                  e.currentTarget.style.borderColor = colors.primary
+                  e.currentTarget.style.background = colors.primaryLight
+                  e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,82,217,0.1)'
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.borderColor = colors.border
                   e.currentTarget.style.background = colors.white
+                  e.currentTarget.style.boxShadow = 'none'
                 }}
               >
                 <FileIcon type={file.file_ext} size={44} />
@@ -283,6 +294,87 @@ export default function DashboardPage() {
                   </div>
                   <div style={{ fontSize: 12, color: colors.textTertiary, marginTop: 2 }}>
                     {formatSize(file.file_size)} · {timeAgo(file.updated_at)}
+                  </div>
+                </div>
+              </div>
+            </Col>
+          ))}
+        </Row>
+      )}
+
+      {/* Shared With Me */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, marginTop: spacing.xxl }}>
+        <Typography.Text strong style={{ fontSize: 15, color: colors.textPrimary }}>
+          与我共享
+        </Typography.Text>
+        <a
+          onClick={() => navigate('/my/shared')}
+          style={{ fontSize: 13, color: colors.primary, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+        >
+          查看全部 <ArrowRightOutlined />
+        </a>
+      </div>
+
+      {sharedLoading ? (
+        <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+      ) : sharedFiles.length === 0 ? (
+        <div style={{
+          padding: 48,
+          textAlign: 'center',
+          border: `1px dashed ${colors.border}`,
+          borderRadius: 12,
+          color: colors.textSecondary,
+        }}>
+          <TeamOutlined style={{ fontSize: 40, color: colors.textTertiary, marginBottom: 12, display: 'block' }} />
+          暂无共享文件
+        </div>
+      ) : (
+        <Row gutter={[12, 12]}>
+          {sharedFiles.map((file) => (
+            <Col key={file.id} xs={24} sm={12} lg={8}>
+              <div
+                onClick={() => {
+                  const isOffice = OFFICE_EDITABLE_EXTS.includes(file.file_ext)
+                  if (isOffice) navigate(`/editor/${file.id}`)
+                  else window.open(fileApi.downloadUrl(file.id), '_blank')
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '12px 16px',
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  background: colors.white,
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = colors.primary
+                  e.currentTarget.style.background = colors.primaryLight
+                  e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,82,217,0.1)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = colors.border
+                  e.currentTarget.style.background = colors.white
+                  e.currentTarget.style.boxShadow = 'none'
+                }}
+              >
+                <FileIcon type={file.file_ext} size={44} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontWeight: 500,
+                    fontSize: 14,
+                    color: colors.textPrimary,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {file.name}
+                  </div>
+                  <div style={{ fontSize: 12, color: colors.textTertiary, marginTop: 2 }}>
+                    {formatSize(file.file_size)}
+                    {file.shared_by && <span> · 来自 {file.shared_by}</span>}
                   </div>
                 </div>
               </div>

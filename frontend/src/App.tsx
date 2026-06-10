@@ -8,6 +8,7 @@ import EditorPage from './pages/EditorPage'
 import TeamManagementPage from './pages/TeamManagementPage'
 import TeamDetailPage from './pages/TeamDetailPage'
 import TrashPage from './pages/TrashPage'
+import SharedWithMePage from './pages/SharedWithMePage'
 import ProfilePage from './pages/ProfilePage'
 import ProtectedRoute from './components/auth/ProtectedRoute'
 import AppLayout from './components/layout/AppLayout'
@@ -33,6 +34,7 @@ export default function App() {
           {/* Personal space */}
           <Route path="/my/files" element={<FileBrowserPage />} />
           <Route path="/my/files/:folderId" element={<FileBrowserPage />} />
+          <Route path="/my/shared" element={<SharedWithMePage />} />
           <Route path="/my/trash" element={<TrashPage />} />
 
           {/* Team management */}

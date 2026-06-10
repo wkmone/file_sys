@@ -84,9 +84,23 @@ func main() {
 	// OnlyOffice (optional but enabled by default)
 	var ooService *service.OnlyOfficeService
 	if cfg.OnlyOfficeEnabled {
-		ooService = service.NewOnlyOfficeService(fileService, cfg.OnlyOfficeJWTSecret,
-			cfg.OnlyOfficeDSURL, cfg.OnlyOfficeCallbackURL, pool)
-		log.Printf("OnlyOffice enabled at %s", cfg.OnlyOfficeDSURL)
+		ooService = service.NewOnlyOfficeService(
+			fileService, 
+			cfg.OnlyOfficeJWTSecret,
+			cfg.OnlyOfficeDSURL, 
+			cfg.OnlyOfficeCallbackURL, 
+			pool, 
+			cfg.OnlyOfficeTheme,
+			cfg.OnlyOfficeJWTExpireHours,
+			cfg.OnlyOfficeDocCache,
+			cfg.OnlyOfficeLargeFileThresholdMB,
+		)
+		log.Printf("OnlyOffice enabled at %s (theme: %s, JWT expire: %dh, large file threshold: %dMB)", 
+			cfg.OnlyOfficeDSURL, 
+			cfg.OnlyOfficeTheme,
+			cfg.OnlyOfficeJWTExpireHours,
+			cfg.OnlyOfficeLargeFileThresholdMB,
+		)
 	} else {
 		log.Printf("OnlyOffice not configured, online editing disabled")
 	}
@@ -94,13 +108,14 @@ func main() {
 	// Handlers
 	authHandler := handler.NewAuthHandler(authService)
 	authHandler.SetUserRepo(userRepo)
-	fileHandler := handler.NewFileHandler(fileService)
+	fileHandler := handler.NewFileHandler(fileService, permRepo)
 	folderHandler := handler.NewFolderHandler(folderService)
 	versionHandler := handler.NewVersionHandler(fileService)
 	trashHandler := handler.NewTrashHandler(fileService, folderService)
 	teamHandler := handler.NewTeamHandler(teamService)
 	ooHandler := handler.NewOnlyOfficeHandler(ooService)
 	searchHandler := handler.NewSearchHandler(searchService)
+	permHandler := handler.NewPermissionHandler(permRepo, fileService, folderService)
 
 	// Rate limiter: 5 login attempts per minute per IP
 	loginLimiter := middleware.NewRateLimiter(5, 1*time.Minute)
@@ -113,7 +128,7 @@ func main() {
 
 	// Setup router
 	r := router.Setup(cfg, authHandler, fileHandler, folderHandler, teamHandler,
-		ooHandler, versionHandler, searchHandler, trashHandler, loginLimiter)
+		ooHandler, versionHandler, searchHandler, trashHandler, permHandler, loginLimiter)
 
 	// Server
 	srv := &http.Server{
@@ -159,6 +174,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		migrationPermissions,
 		migrationRefreshTokens,
 		migrationOOSessions,
+		migrationOOSessionsModeUpdate,
 		migrationJoinRequests,
 	}
 	for _, m := range migrations {

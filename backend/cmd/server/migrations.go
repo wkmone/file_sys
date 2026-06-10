@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS onlyoffice_sessions (
     document_key    VARCHAR(128) NOT NULL,
     callback_url    VARCHAR(512),
     mode            VARCHAR(16) NOT NULL DEFAULT 'edit'
-                        CHECK (mode IN ('edit', 'view')),
+                        CHECK (mode IN ('edit', 'view', 'comment', 'review', 'fillForms')),
     status          VARCHAR(32) NOT NULL DEFAULT 'opened',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -169,6 +169,15 @@ CREATE TABLE IF NOT EXISTS onlyoffice_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_oo_sessions_file ON onlyoffice_sessions(file_id);
 CREATE INDEX IF NOT EXISTS idx_oo_sessions_key ON onlyoffice_sessions(document_key);
+`
+
+const migrationOOSessionsModeUpdate = `
+DO $$ BEGIN
+	ALTER TABLE onlyoffice_sessions DROP CONSTRAINT IF EXISTS onlyoffice_sessions_mode_check;
+EXCEPTION WHEN undefined_table THEN
+	-- table doesn't exist yet, skip
+END $$;
+ALTER TABLE onlyoffice_sessions ADD CONSTRAINT onlyoffice_sessions_mode_check CHECK (mode IN ('edit', 'view', 'comment', 'review', 'fillForms'));
 `
 
 const migrationJoinRequests = `

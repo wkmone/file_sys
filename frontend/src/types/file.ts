@@ -12,6 +12,19 @@ export interface FileItem {
   is_deleted: boolean
   created_at: string
   updated_at: string
+  permission?: string
+  shared_by?: string
+}
+
+export interface FilePermission {
+  id: string
+  user_id: string | null
+  user_name: string
+  team_id: string | null
+  team_name: string
+  permission: string
+  granted_by: string
+  created_at: string
 }
 
 export interface FileVersion {

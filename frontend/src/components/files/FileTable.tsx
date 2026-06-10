@@ -6,12 +6,14 @@ import {
   EditOutlined,
   DownloadOutlined,
   DeleteOutlined,
+  ShareAltOutlined,
+  TeamOutlined,
 } from '@ant-design/icons'
 import type { FileItem } from '../../types/file'
 import type { Folder } from '../../types/folder'
 import { fileApi } from '../../api/fileApi'
 import FileIcon from '../common/FileIcon'
-import { colors } from '../../theme'
+import { colors, OFFICE_EDITABLE_EXTS } from '../../theme'
 
 interface FileTableProps {
   files: FileItem[]
@@ -20,6 +22,7 @@ interface FileTableProps {
   onEnterFolder: (folder: Folder) => void
   onEditFile: (file: FileItem) => void
   onRefresh: () => void
+  onShare: (file: FileItem) => void
 }
 
 function formatSize(bytes: number): string {
@@ -28,7 +31,7 @@ function formatSize(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
-export default function FileTable({ files, folders, loading, onEnterFolder, onEditFile, onRefresh }: FileTableProps) {
+export default function FileTable({ files, folders, loading, onEnterFolder, onEditFile, onRefresh, onShare }: FileTableProps) {
   const handleDownload = (file: FileItem) => {
     window.open(fileApi.downloadUrl(file.id), '_blank')
   }
@@ -61,11 +64,11 @@ export default function FileTable({ files, folders, loading, onEnterFolder, onEd
         return (
           <div
             style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
-            onClick={() => isFolder ? onEnterFolder(record as Folder) : undefined}
-            onDoubleClick={() => {
-              if (!isFolder) {
+            onClick={() => {
+              if (isFolder) onEnterFolder(record as Folder)
+              else {
                 const f = record as FileItem
-                const isOffice = ['.docx', '.xlsx', '.pptx'].includes(f.file_ext)
+                const isOffice = OFFICE_EDITABLE_EXTS.includes(f.file_ext)
                 if (isOffice) onEditFile(f)
                 else handleDownload(f)
               }
@@ -78,6 +81,9 @@ export default function FileTable({ files, folders, loading, onEnterFolder, onEd
             <span style={{ fontWeight: isFolder ? 500 : 400, color: colors.textPrimary, fontSize: 14 }}>
               {name}
             </span>
+            {!isFolder && ((record as FileItem).permission || (record as FileItem).shared_by) && (
+              <TeamOutlined style={{ color: colors.primary, fontSize: 14, marginLeft: 4 }} title="已共享" />
+            )}
           </div>
         )
       },
@@ -152,6 +158,7 @@ export default function FileTable({ files, folders, loading, onEnterFolder, onEd
         const file = record as FileItem
         const fileMenuItems = [
           { key: 'edit', icon: <EditOutlined />, label: '编辑', onClick: () => onEditFile(file) },
+          { key: 'share', icon: <ShareAltOutlined />, label: '共享', onClick: () => onShare(file) },
           { key: 'download', icon: <DownloadOutlined />, label: '下载', onClick: () => handleDownload(file) },
           { type: 'divider' as const },
           { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true, onClick: () => handleDelete(file) },
@@ -195,6 +202,9 @@ export default function FileTable({ files, folders, loading, onEnterFolder, onEd
     const style = document.createElement('style')
     style.id = id
     style.textContent = `
+      .file-table-wrapper .ant-table-row:hover > td {
+        background: #f0f2f5 !important;
+      }
       .file-table-wrapper .ant-table-body {
         scrollbar-width: thin;
         scrollbar-color: transparent transparent;
@@ -239,7 +249,7 @@ export default function FileTable({ files, folders, loading, onEnterFolder, onEd
       scroll={scrollY > 0 ? { y: scrollY } : undefined}
       locale={{ emptyText: '此文件夹为空' }}
       onRow={() => ({
-        style: { cursor: 'default' },
+        style: { cursor: 'pointer' },
       })}
     />
     </div>

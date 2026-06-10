@@ -18,11 +18,15 @@ import (
 )
 
 type OnlyOfficeService struct {
-	fileService *FileService
-	jwtSecret   string
-	dsURL       string
-	callbackURL string
-	db          *pgxpool.Pool
+	fileService              *FileService
+	jwtSecret                string
+	dsURL                    string
+	callbackURL              string
+	db                       *pgxpool.Pool
+	theme                    string
+	jwtExpireHours           int
+	docCacheEnabled          bool
+	largeFileThresholdMB     int64
 }
 
 func NewOnlyOfficeService(
@@ -31,13 +35,21 @@ func NewOnlyOfficeService(
 	dsURL string,
 	callbackURL string,
 	db *pgxpool.Pool,
+	theme string,
+	jwtExpireHours int,
+	docCacheEnabled bool,
+	largeFileThresholdMB int64,
 ) *OnlyOfficeService {
 	return &OnlyOfficeService{
-		fileService: fileService,
-		jwtSecret:   jwtSecret,
-		dsURL:       dsURL,
-		callbackURL: callbackURL,
-		db:          db,
+		fileService:              fileService,
+		jwtSecret:                jwtSecret,
+		dsURL:                    dsURL,
+		callbackURL:              callbackURL,
+		db:                       db,
+		theme:                    theme,
+		jwtExpireHours:           jwtExpireHours,
+		docCacheEnabled:          docCacheEnabled,
+		largeFileThresholdMB:     largeFileThresholdMB,
 	}
 }
 
@@ -47,21 +59,22 @@ func (s *OnlyOfficeService) GenerateEditorConfig(ctx context.Context, userID, us
 		return nil, fmt.Errorf("get file: %w", err)
 	}
 
-	// Document key = SHA-256(fileID + version)
+	// Look up display name from DB
+	displayName := userName
+	if s.db != nil && userID != "" {
+		var dn string
+		if err := s.db.QueryRow(ctx, `SELECT display_name FROM users WHERE id = $1`, userID).Scan(&dn); err == nil {
+			displayName = dn
+		}
+	}
+
 	docKeyRaw := fmt.Sprintf("%s_%d", file.ID, file.CurrentVersion)
 	docKeyHash := sha256.Sum256([]byte(docKeyRaw))
 	docKey := hex.EncodeToString(docKeyHash[:])[:20]
 
-	canEdit := mode == "edit"
+	docType := detectDocumentType_oo(file.FileExt)
 
-	// Map file extension to OnlyOffice documentType
-	docType := "word"
-	switch file.FileExt {
-	case ".xlsx":
-		docType = "cell"
-	case ".pptx":
-		docType = "slide"
-	}
+	activeUsers := s.getActiveUsers(ctx, fileID)
 
 	config := map[string]interface{}{
 		"documentType": docType,
@@ -69,32 +82,35 @@ func (s *OnlyOfficeService) GenerateEditorConfig(ctx context.Context, userID, us
 		"width":        "100%",
 		"height":       "100%",
 		"document": map[string]interface{}{
-			"fileType": file.FileExt[1:],
-			"key":      docKey,
-			"title":    file.OriginalName,
-			"url":      fmt.Sprintf("%s/api/v1/oo/file/%s", s.callbackURL, fileID),
-			"permissions": map[string]interface{}{
-				"edit":     canEdit,
-				"download": true,
-				"review":   true,
-			},
+			"fileType":    file.FileExt[1:],
+			"key":         docKey,
+			"title":       file.OriginalName,
+			"url":         fmt.Sprintf("%s/api/v1/oo/file/%s", s.callbackURL, fileID),
+			"permissions": mapPermissions(mode),
 		},
 		"editorConfig": map[string]interface{}{
-			"callbackUrl": fmt.Sprintf("%s/api/v1/oo/callback/%s", s.callbackURL, fileID),
+			"callbackUrl":  fmt.Sprintf("%s/api/v1/oo/callback/%s", s.callbackURL, fileID),
 			"user": map[string]string{
 				"id":   userID,
-				"name": userName,
+				"name": displayName,
 			},
-			"mode": mode,
-			"lang": "zh-CN",
+			"users":         activeUsers,
+			"mode":          mode,
+			"lang":          "zh-CN",
+			"customization": buildCustomization(s.theme),
 		},
 	}
 
-	// Serialize and sign entire config as JWT (required when OO DS has JWT enabled)
 	configJSON, _ := json.Marshal(config)
 	var claims jwt.MapClaims
 	json.Unmarshal(configJSON, &claims)
-	claims["exp"] = time.Now().Add(24 * time.Hour).Unix()
+	
+	// 使用配置的 JWT 过期时间（小时）
+	expireHours := s.jwtExpireHours
+	if expireHours <= 0 {
+		expireHours = 24
+	}
+	claims["exp"] = time.Now().Add(time.Duration(expireHours) * time.Hour).Unix()
 	claims["iat"] = time.Now().Unix()
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -104,6 +120,84 @@ func (s *OnlyOfficeService) GenerateEditorConfig(ctx context.Context, userID, us
 	}
 
 	return &dto.EditorConfigResponse{Token: signed, Config: config}, nil
+}
+
+func detectDocumentType_oo(ext string) string {
+	wordExts := map[string]bool{
+		".docx": true, ".doc": true, ".odt": true, ".rtf": true,
+		".txt": true, ".html": true, ".htm": true, ".mht": true,
+		".epub": true, ".fb2": true, ".dotx": true, ".ott": true,
+		".docxf": true, ".oform": true,
+		".pdf": true, ".djvu": true, ".xps": true, ".oxps": true,
+	}
+	cellExts := map[string]bool{
+		".xlsx": true, ".xls": true, ".ods": true, ".csv": true,
+		".xltx": true, ".ots": true, ".fods": true,
+	}
+	slideExts := map[string]bool{
+		".pptx": true, ".ppt": true, ".odp": true, ".ppsx": true,
+		".pps": true, ".potx": true, ".otp": true,
+	}
+	if wordExts[ext] {
+		return "word"
+	}
+	if cellExts[ext] {
+		return "cell"
+	}
+	if slideExts[ext] {
+		return "slide"
+	}
+	return "word"
+}
+
+func mapPermissions(mode string) map[string]interface{} {
+	perms := map[string]interface{}{
+		"edit": false, "comment": false, "review": false,
+		"fillForms": false, "modifyFilter": false,
+		"modifyContentControl": false, "copy": true,
+		"download": true, "print": true,
+	}
+	switch mode {
+	case "edit":
+		perms["edit"] = true
+		perms["comment"] = true
+		perms["review"] = true
+		perms["fillForms"] = true
+		perms["modifyFilter"] = true
+		perms["modifyContentControl"] = true
+	case "comment":
+		perms["comment"] = true
+	case "review":
+		perms["comment"] = true
+		perms["review"] = true
+	case "fillForms":
+		perms["fillForms"] = true
+	}
+	return perms
+}
+
+func buildCustomization(theme string) map[string]interface{} {
+	// Use default theme if not specified
+	if theme == "" {
+		theme = "theme-light"
+	}
+	return map[string]interface{}{
+		"autosave":            true,
+		"chat":                false,
+		"comments":            true,
+		"compactHeader":       true,
+		"compactToolbar":      false,
+		"forcesave":           true,
+		"help":                false,
+		"hideRightMenu":       false,
+		"hideRulers":          false,
+		"spellcheck":          true,
+		"uiTheme":             theme,
+		"toolbarHideFileName": false,
+		"zoom":                100,
+		"macros":              false,
+		"plugins":             false,
+	}
 }
 
 func (s *OnlyOfficeService) HandleCallback(ctx context.Context, cb *dto.OnlyOfficeCallback, fileID string) error {
@@ -139,7 +233,6 @@ func (s *OnlyOfficeService) HandleCallback(ctx context.Context, cb *dto.OnlyOffi
 }
 
 func (s *OnlyOfficeService) recordSession(ctx context.Context, fileID string, cb *dto.OnlyOfficeCallback) {
-	// Store active editing session
 	for _, uid := range cb.Users {
 		s.db.Exec(ctx,
 			`INSERT INTO onlyoffice_sessions (file_id, user_id, document_key, mode, status)
@@ -147,6 +240,32 @@ func (s *OnlyOfficeService) recordSession(ctx context.Context, fileID string, cb
 			 ON CONFLICT DO NOTHING`,
 			fileID, uid, cb.Key)
 	}
+}
+
+func (s *OnlyOfficeService) getActiveUsers(ctx context.Context, fileID string) []map[string]string {
+	if s.db == nil {
+		return nil
+	}
+	rows, err := s.db.Query(ctx,
+		`SELECT DISTINCT os.user_id, u.display_name
+		 FROM onlyoffice_sessions os
+		 JOIN users u ON os.user_id = u.id
+		 WHERE os.file_id = $1 AND os.status = 'active'
+		 ORDER BY os.created_at DESC LIMIT 20`, fileID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var users []map[string]string
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			continue
+		}
+		users = append(users, map[string]string{"id": id, "name": name})
+	}
+	return users
 }
 
 func (s *OnlyOfficeService) GetFileStream(ctx context.Context, fileID string) (io.ReadCloser, string, int64, error) {
@@ -182,11 +301,38 @@ func (s *OnlyOfficeService) LookupFileIDByDocumentKey(ctx context.Context, docKe
 
 func detectMimeType_oo(ext string) string {
 	mimeTypes := map[string]string{
-		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-		".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-		".pdf":  "application/pdf",
-		".txt":  "text/plain",
+		".docx":  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		".doc":   "application/msword",
+		".odt":   "application/vnd.oasis.opendocument.text",
+		".rtf":   "application/rtf",
+		".txt":   "text/plain",
+		".html":  "text/html",
+		".htm":   "text/html",
+		".mht":   "multipart/related",
+		".epub":  "application/epub+zip",
+		".fb2":   "application/x-fictionbook+xml",
+		".dotx":  "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+		".ott":   "application/vnd.oasis.opendocument.text-template",
+		".docxf": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		".oform": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		".xlsx":  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		".xls":   "application/vnd.ms-excel",
+		".ods":   "application/vnd.oasis.opendocument.spreadsheet",
+		".csv":   "text/csv",
+		".xltx":  "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+		".ots":   "application/vnd.oasis.opendocument.spreadsheet-template",
+		".fods":  "application/vnd.oasis.opendocument.spreadsheet-flat-xml",
+		".pptx":  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		".ppt":   "application/vnd.ms-powerpoint",
+		".odp":   "application/vnd.oasis.opendocument.presentation",
+		".ppsx":  "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
+		".pps":   "application/vnd.ms-powerpoint",
+		".potx":  "application/vnd.openxmlformats-officedocument.presentationml.template",
+		".otp":   "application/vnd.oasis.opendocument.presentation-template",
+		".pdf":   "application/pdf",
+		".djvu":  "image/vnd.djvu",
+		".xps":   "application/vnd.ms-xpsdocument",
+		".oxps":  "application/oxps",
 	}
 	if m, ok := mimeTypes[ext]; ok {
 		return m

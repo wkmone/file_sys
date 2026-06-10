@@ -180,7 +180,7 @@ func (s *AuthService) generateAuthResponse(ctx context.Context, user *model.User
 		TokenHash:  refreshHash,
 		DeviceInfo: deviceInfo,
 		IPAddress:  ipAddr,
-		ExpiresAt:  time.Now().Add(7 * 24 * time.Hour),
+		ExpiresAt:  time.Now().Add(14 * 24 * time.Hour),
 	}
 	if err := s.tokenRepo.Create(ctx, refreshToken); err != nil {
 		return nil, err

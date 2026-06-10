@@ -18,6 +18,7 @@ func Setup(
 	versionHandler *handler.VersionHandler,
 	searchHandler *handler.SearchHandler,
 	trashHandler *handler.TrashHandler,
+	permHandler *handler.PermissionHandler,
 	loginLimiter *middleware.RateLimiter,
 ) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
@@ -66,7 +67,15 @@ func Setup(
 			users := protected.Group("/users")
 			{
 				users.GET("", authHandler.ListUsers)
+				users.GET("/search", authHandler.SearchUsers)
 				users.GET("/:id", authHandler.GetUser)
+			}
+
+			// Permissions
+			perms := protected.Group("/permissions")
+			{
+				perms.PATCH("/:id", permHandler.Update)
+				perms.DELETE("/:id", permHandler.Delete)
 			}
 
 			// Folders
@@ -74,11 +83,13 @@ func Setup(
 			{
 				folders.GET("", folderHandler.List)
 				folders.POST("", folderHandler.Create)
+				folders.GET("/shared-with-me", permHandler.SharedWithMeFolders)
 				folders.GET("/:id", folderHandler.Get)
 				folders.PATCH("/:id", folderHandler.Update)
 				folders.DELETE("/:id", folderHandler.Delete)
 				folders.GET("/:id/tree", folderHandler.Tree)
 				folders.POST("/:id/share", folderHandler.Share)
+				folders.GET("/:id/permissions", permHandler.ListByFolder)
 			}
 
 			// Files
@@ -87,12 +98,15 @@ func Setup(
 				files.GET("", fileHandler.List)
 				files.POST("", fileHandler.Upload)
 				files.POST("/batch", fileHandler.BatchUpload)
+				files.POST("/blank", fileHandler.CreateBlank)
+				files.GET("/shared-with-me", permHandler.SharedWithMeFiles)
 				files.GET("/:id", fileHandler.Get)
 				files.PATCH("/:id", fileHandler.Update)
 				files.DELETE("/:id", fileHandler.Delete)
 				files.GET("/:id/download", fileHandler.Download)
 				files.POST("/:id/copy", fileHandler.Copy)
 				files.POST("/:id/share", fileHandler.Share)
+				files.GET("/:id/permissions", permHandler.ListByFile)
 			}
 
 			// OnlyOffice editor config
